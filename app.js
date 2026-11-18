@@ -265,7 +265,9 @@
         </div>
         <div class="chips" style="margin-top:10px">${voice.map((c) => `<label><input type="checkbox" class="g-ch" value="${c.channel_id}" ${greetSet.has(c.channel_id) ? "checked" : ""}> ${esc(c.name)}</label>`).join("") || `<span class="muted small">음성 채널 정보가 아직 없어요</span>`}</div>
       </div>
-      <p><button class="primary" id="s-save">설정 저장</button></p>`;
+      <p><button class="primary" id="s-save">설정 저장</button></p>
+      <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>`;
+    sheetCard();
     $("#s-save").onclick = async () => {
       const offs = [...new Set(($("#s-alerts").value.match(/\d+/g) || []).map(Number))].sort((a, b) => b - a);
       const mode = v.querySelector("input[name=greet]:checked").value;
@@ -280,6 +282,51 @@
       toast("설정을 저장했어요");
     };
   }
+
+  // ---------- 구글 시트 ----------
+  // 연결: google_begin() 으로 state 를 받아 구글 허용 팝업 → google.html 이 코드를 넘김 → 봇이 시트를 만듦
+  const GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
+  const googleRedirect = () => cfg.GOOGLE_REDIRECT;
+  async function sheetCard() {
+    const card = $("#g-card"); if (!card) return;
+    const gid = G();
+    const rows = await q(sb.from("google_links").select("sheet_url,synced_at,error").eq("guild_id", gid));
+    if (G() !== gid || !$("#g-card")) return;
+    const l = rows[0];
+    const howto = `<p class="muted small">구글 계정으로 허용하면 그 계정 드라이브에 <b>'벨라꼬붕 출석 기록'</b> 시트를 만들고, 10분마다 월간 순위 · 참여 상세 · 보스 컷 기록을 채워요.
+      봇은 자기가 만든 시트만 다룰 수 있어요. 기존 시트에서 쓰려면 <code>=IMPORTRANGE("시트 주소", "월간 순위!A1:G300")</code> 로 끌어가세요.</p>`;
+    if (!l) {
+      card.innerHTML = `<h2>📊 구글 시트</h2>${howto}<button class="primary" id="g-link">구글 시트 연결</button>`;
+      $("#g-link").onclick = connectGoogle;
+      return;
+    }
+    const when = l.synced_at ? fmtDate(l.synced_at) : "아직";
+    card.innerHTML = `<h2>📊 구글 시트 <span class="badge ${l.error ? "off" : "boss"}">${l.error ? "확인 필요" : "연결됨"}</span></h2>
+      ${l.error ? `<p style="color:var(--bad)">⚠️ ${esc(l.error)}</p>` : `<p class="muted small">마지막 갱신: ${when} · 10분마다 갱신돼요</p>`}
+      <div class="row"><a href="${esc(l.sheet_url)}" target="_blank" rel="noopener"><button class="primary">시트 열기</button></a>
+      <button id="g-relink">다시 연결</button><button class="danger ghost" id="g-unlink">연결 끊기</button></div>`;
+    $("#g-relink").onclick = connectGoogle;
+    $("#g-unlink").onclick = async () => {
+      if (!confirm("구글 시트 연결을 끊을까요? 시트 파일은 드라이브에 그대로 남아요.")) return;
+      await q(sb.rpc("google_unlink", { gid: G() }));
+      toast("연결을 끊었어요"); sheetCard();
+    };
+  }
+  async function connectGoogle() {
+    const popup = window.open("about:blank", "google-link", "width=520,height=680");
+    let st;
+    try { st = await q(sb.rpc("google_begin", { gid: G() })); }
+    catch (e) { popup && popup.close(); return; }
+    const url = GOOGLE_AUTH + "?" + new URLSearchParams({
+      client_id: cfg.GOOGLE_CLIENT_ID, redirect_uri: googleRedirect(), response_type: "code",
+      scope: "https://www.googleapis.com/auth/drive.file", access_type: "offline", prompt: "consent", state: st,
+    });
+    if (popup) popup.location = url; else location.href = url;
+    toast("구글 창에서 허용해 주세요");
+  }
+  window.addEventListener("message", (e) => {
+    if (e.origin === location.origin && e.data === "google-linked") { toast("구글 시트를 연결했어요"); sheetCard(); }
+  });
 
   // ---------- 레기온 ----------
   function nextSunday() {

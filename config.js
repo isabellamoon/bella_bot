@@ -4,4 +4,7 @@
 window.BOT_CONFIG = {
   SUPABASE_URL: "https://gbovxjwfcuvcpoqmexeg.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_YDaJXmgQoK0850AKjenZAw_qxRxhuFD",
+  // 구글 시트 연결 (구글 클라우드 OAuth 클라이언트 ID — 공개용 값. 비밀 키는 봇에만 있음)
+  GOOGLE_CLIENT_ID: "322156824935-ofn80m3tt3o485oqveodi0omd7c0lel7.apps.googleusercontent.com",
+  GOOGLE_REDIRECT: "https://isabellamoon.github.io/bella_bot/google.html",   // 구글 클라우드에 등록한 리디렉션 URI 와 똑같아야 함
 };

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>구글 시트 연결 · 벨라꼬붕</title>
+  <link rel="icon" href="assets/avatar.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <img class="avatar" src="assets/avatar.png" alt="">
+      <div><h1>구글 시트 연결</h1><p class="sub">벨라꼬붕 출석 기록</p></div>
+    </div>
+  </header>
+  <main>
+    <section class="card center">
+      <h2 id="title">연결하는 중…</h2>
+      <p class="muted" id="msg">잠시만 기다려 주세요. 봇이 시트를 만들고 있어요.</p>
+      <p id="link" hidden><a id="open" target="_blank" rel="noopener"><button class="primary">시트 열기</button></a></p>
+    </section>
+  </main>
+  <footer class="ground" aria-hidden="true"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+  // 구글 허용 후 돌아오는 페이지: 일회용 코드를 Supabase 에 넘기고, 봇이 시트를 만들 때까지 기다린다.
+  (async () => {
+    const cfg = window.BOT_CONFIG;
+    const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    const p = new URLSearchParams(location.search);
+    history.replaceState(null, "", location.pathname);   // 주소창에서 코드 지우기
+    const title = document.getElementById("title"), msg = document.getElementById("msg");
+    const fail = (t) => { title.textContent = "연결하지 못했어요"; msg.textContent = t; };
+    if (p.get("error")) return fail(p.get("error") === "access_denied" ? "허용을 취소했어요. 다시 연결하려면 관리 페이지나 디스코드 관리판에서 다시 눌러 주세요." : "구글 오류: " + p.get("error"));
+    const st = p.get("state"), code = p.get("code");
+    if (!st || !code) return fail("잘못된 접근이에요.");
+    const { data: ok, error } = await sb.rpc("google_submit", { st, c: code });
+    if (error || !ok) return fail("연결 링크가 만료됐거나 이미 쓴 링크예요. 처음부터 다시 눌러 주세요.");
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const { data } = await sb.rpc("google_status", { st });
+      const s = data && data[0];
+      if (!s) continue;
+      if (s.status === "done") {
+        title.textContent = "✅ 연결됐어요";
+        msg.textContent = "드라이브에 '벨라꼬붕 출석 기록' 시트를 만들었어요. 10분마다 갱신돼요. 이 창은 닫으셔도 돼요.";
+        document.getElementById("open").href = s.result;
+        document.getElementById("link").hidden = false;
+        if (window.opener) { try { window.opener.postMessage("google-linked", location.origin); } catch (e) {} }
+        return;
+      }
+      if (s.status === "error") return fail(s.result || "연결 중 오류가 났어요.");
+    }
+    fail("봇이 응답하지 않아요. 봇이 켜져 있는지 확인한 뒤 다시 시도해 주세요.");
+  })();
+  </script>
+</body>
+</html>
