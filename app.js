@@ -107,10 +107,12 @@
       <button class="ghost small" id="btn-logout">로그아웃</button>`;
     $("#btn-logout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
-    state.guilds = await q(sb.from("web_guilds").select("guild_id::text,name,icon_url,owner_id::text").order("name"));
+    state.allGuilds = await q(sb.from("web_guilds").select("guild_id::text,name,icon_url,owner_id::text,owner_name,member_count,joined_at,left_at").order("name"));
+    state.guilds = state.allGuilds.filter((g) => !g.left_at);   // 지금 봇이 들어가 있는 서버만 고를 수 있음
     if (!state.guilds.length) { $("#noguild").hidden = false; return; }
     const ownerRows = await q(sb.from("web_owners").select("user_id::text"));
     state.botOwner = ownerRows.length > 0;
+    $("#tab-servers").hidden = !state.botOwner;
     const sel = $("#guild");
     sel.innerHTML = state.guilds.map((g) => `<option value="${g.guild_id}">${esc(g.name)}</option>`).join("");
     const saved = localStorage.getItem("gid");
@@ -447,6 +449,76 @@
     };
   }
 
-  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab };
+  // ---------- 서버 (봇 주인 전용): 봇이 들어갔던 서버 목록 · 차단 ----------
+  async function serversTab(v) {
+    if (!state.botOwner) { v.innerHTML = `<div class="card muted">봇 주인만 볼 수 있어요.</div>`; return; }
+    const [guilds, blocks] = await Promise.all([
+      q(sb.from("web_guilds").select("guild_id::text,name,owner_id::text,owner_name,member_count,joined_at,left_at").order("left_at", { nullsFirst: true }).order("name")),
+      q(sb.from("bot_blocklist").select("kind,target_id::text,note,created_at").order("created_at", { ascending: false })),
+    ]);
+    const blocked = new Set(blocks.map((b) => `${b.kind}:${b.target_id}`));
+    const knownGuild = Object.fromEntries(guilds.map((g) => [g.guild_id, g.name]));
+    const knownOwner = Object.fromEntries(guilds.map((g) => [g.owner_id, g.owner_name || g.owner_id]));
+    v.innerHTML = `
+      <div class="card">
+        <h2>봇이 들어갔던 서버 (${guilds.length})</h2>
+        <p class="muted small">차단하면 봇이 1분 안에 그 서버에서 나가고, 다시 초대돼도 바로 나가요. <b>주인 차단</b>은 그 사람이 주인인 서버라면 어디든 막아요.</p>
+        <div class="table-wrap"><table><thead><tr><th>서버</th><th>서버 주인</th><th>인원</th><th>들어간 날</th><th>상태</th><th></th></tr></thead><tbody>
+          ${guilds.map((g) => {
+            const gb = blocked.has(`guild:${g.guild_id}`), ob = blocked.has(`owner:${g.owner_id}`);
+            return `<tr>
+              <td><b>${esc(g.name)}</b><div class="muted small">${g.guild_id}</div></td>
+              <td>${esc(g.owner_name || "-")}<div class="muted small">${g.owner_id || ""}</div></td>
+              <td>${g.member_count ?? "-"}</td>
+              <td>${g.joined_at ? fmtDate(g.joined_at) : "-"}</td>
+              <td>${g.left_at ? `<span class="badge off">나감 ${fmtDate(g.left_at)}</span>` : `<span class="badge">사용 중</span>`}
+                  ${gb ? `<span class="badge off">서버 차단</span>` : ""}${ob ? `<span class="badge off">주인 차단</span>` : ""}</td>
+              <td class="row">
+                ${gb ? "" : `<button class="danger" data-block="guild" data-id="${g.guild_id}">서버 차단</button>`}
+                ${ob || !g.owner_id ? "" : `<button class="danger ghost" data-block="owner" data-id="${g.owner_id}">주인 차단</button>`}
+              </td></tr>`;
+          }).join("")}
+        </tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>차단 목록 (${blocks.length})</h2>
+        ${blocks.length ? `<table><tbody>${blocks.map((b) => `<tr>
+            <td><span class="badge off">${b.kind === "guild" ? "서버" : "서버 주인"}</span></td>
+            <td><b>${esc(b.kind === "guild" ? (knownGuild[b.target_id] || b.target_id) : (knownOwner[b.target_id] || b.target_id))}</b>
+              <div class="muted small">${b.target_id}${b.note ? " · " + esc(b.note) : ""}</div></td>
+            <td class="muted small">${fmtDate(b.created_at)}</td>
+            <td><button data-unblock="${b.kind}" data-id="${b.target_id}">차단 해제</button></td></tr>`).join("")}</tbody></table>`
+          : `<p class="muted">차단한 곳이 없어요.</p>`}
+        <div class="row" style="margin-top:12px">
+          <select id="bl-kind"><option value="guild">서버 ID</option><option value="owner">서버 주인 ID</option></select>
+          <input id="bl-id" placeholder="디스코드 ID (숫자)" inputmode="numeric">
+          <input id="bl-note" placeholder="메모 (선택)">
+          <button class="danger" id="bl-add">ID로 차단</button>
+        </div>
+      </div>`;
+    const block = async (kind, id, note) => {
+      await q(sb.from("bot_blocklist").insert({ kind, target_id: id, note: note || null, created_at: kstIso(new Date()), created_by: state.me.id }));
+      toast("차단했어요. 봇이 1분 안에 나가요."); render();
+    };
+    v.querySelectorAll("[data-block]").forEach((b) => (b.onclick = async () => {
+      const what = b.dataset.block === "guild" ? "이 서버" : "이 사람이 주인인 모든 서버";
+      const note = prompt(`${what}를 차단할까요? 메모(선택)를 남길 수 있어요.`);
+      if (note === null) return;
+      await block(b.dataset.block, b.dataset.id, note.trim());
+    }));
+    v.querySelectorAll("[data-unblock]").forEach((b) => (b.onclick = async () => {
+      if (!confirm("차단을 해제할까요? (봇을 다시 초대해야 들어가요)")) return;
+      await q(sb.from("bot_blocklist").delete().eq("kind", b.dataset.unblock).eq("target_id", b.dataset.id));
+      toast("차단을 해제했어요"); render();
+    }));
+    $("#bl-add").onclick = async () => {
+      const id = $("#bl-id").value.trim();
+      if (!/^\d{15,21}$/.test(id)) return toast("디스코드 ID(숫자 17~20자리)를 넣어 주세요", true);
+      if (!confirm("이 ID를 차단할까요?")) return;
+      await block($("#bl-kind").value, id, $("#bl-note").value.trim());
+    };
+  }
+
+  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab };
   start();
 })();
