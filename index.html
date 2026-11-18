@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>벨라꼬붕 도움받기 (관리자 패널)</title>
+  <link rel="icon" href="assets/avatar.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <img class="avatar" src="assets/avatar.png" alt="">
+      <div>
+        <h1>벨라꼬붕 도움받기</h1>
+        <p class="sub">관리자 패널 · 보스 · 레이드 · 레기온 출석</p>
+      </div>
+      <div class="me" id="me"></div>
+    </div>
+  </header>
+
+  <main id="app">
+    <section id="login" class="card center" hidden>
+      <h2>디스코드로 로그인</h2>
+      <p class="muted">봇 주인 · 서버 주인 · 관리판에서 지정된 관리자만 들어올 수 있어요.</p>
+      <button id="btn-login" class="primary">디스코드로 로그인</button>
+    </section>
+
+    <section id="noguild" class="card center" hidden>
+      <h2>관리할 수 있는 서버가 없어요</h2>
+      <p class="muted">디스코드 관리판에서 관리자로 지정받았는지 확인해 주세요. 지정된 직후라면 10분쯤 뒤에 다시 들어와 주세요.</p>
+    </section>
+
+    <section id="main" hidden>
+      <div class="toolbar">
+        <select id="guild"></select>
+        <nav class="tabs" id="tabs">
+          <button data-tab="bosses" class="active">보스</button>
+          <button data-tab="settings">설정</button>
+          <button data-tab="battles">레기온</button>
+          <button data-tab="attendance">출석</button>
+          <button data-tab="admins">관리자</button>
+        </nav>
+      </div>
+      <div id="view"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
