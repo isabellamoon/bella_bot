@@ -209,7 +209,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -217,7 +217,14 @@
     const opts = (list, cur) => `<option value="">— 지정 안 함 —</option>` + list.map((c) => `<option value="${c.channel_id}" ${c.channel_id === cur ? "selected" : ""}>${c.kind === "voice" ? "🔊" : "#"} ${esc(c.name)}</option>`).join("");
     const greet = s.greet_channels == null ? "all" : s.greet_channels === "" ? "off" : "pick";
     const greetSet = new Set((s.greet_channels || "").split(",").filter(Boolean));
+    const GAMES = [["zeus", "제우스: 오만의 신"], ["odin", "오딘 (준비 중)"], ["sol", "솔: 인첸트 (준비 중)"],
+      ["archeage", "아키에이지 크로니클 (준비 중)"], ["chrono", "크로노 오디세이 (준비 중)"], ["etc", "기타"]];
     v.innerHTML = `
+      <div class="card">
+        <h2>🎮 게임</h2>
+        <p class="muted small">제우스 전용 기능(일요일 길드전 · 기본 보스 목록 · 현황판 인식)은 제우스 서버에서만 켜져요. 준비 중인 게임은 지원되면 자동으로 켜져요.</p>
+        <select id="s-game"><option value="">— 미설정 —</option>${GAMES.map(([c, n]) => `<option value="${c}" ${s.game === c ? "selected" : ""}>${n}</option>`).join("")}</select>
+      </div>
       <div class="card">
         <h2>알림 · 참여</h2>
         <div class="grid">
@@ -253,7 +260,7 @@
       const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
       const val = (id) => $(id).value || null;
       await q(sb.from("boss_settings").upsert({
-        guild_id: G(), recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
+        guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
         shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
         greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(","),
