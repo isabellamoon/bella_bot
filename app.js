@@ -103,6 +103,7 @@
     const u = data.session.user.user_metadata || {};
     state.me = { id: String(u.provider_id || ""), name: u.custom_claims?.global_name || u.full_name || u.name || "나", avatar: u.avatar_url };
     $("#me").innerHTML = `${state.me.avatar ? `<img src="${esc(state.me.avatar)}" alt="">` : ""}<span>${esc(state.me.name)}</span>
+      <span class="badge" id="my-role" hidden></span>
       <button class="ghost small" id="btn-logout">로그아웃</button>`;
     $("#btn-logout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
@@ -123,10 +124,19 @@
     $("#main").hidden = false;
     selectGuild(sel.value);
   }
-  function selectGuild(gid) {
+  async function selectGuild(gid) {
     state.gid = gid;
     const g = state.guilds.find((x) => x.guild_id === gid);
     state.owner = state.botOwner || (g && g.owner_id === state.me.id);
+    // 우상단에 이 서버에서의 내 역할 표시
+    let role = state.botOwner ? "👑 봇 주인" : g && g.owner_id === state.me.id ? "🏰 서버 주인" : null;
+    if (!role) {
+      const mine = await q(sb.from("bot_admins").select("user_id::text").eq("guild_id", gid).eq("user_id", state.me.id));
+      role = mine.length ? "🛡️ 관리자" : null;
+    }
+    const badge = $("#my-role");
+    badge.textContent = role || "";
+    badge.hidden = !role;
     render();
   }
   async function render() {
