@@ -150,7 +150,7 @@
 
   // ---------- 보스 ----------
   async function bossesTab(v) {
-    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display").eq("guild_id", G()).order("respawn_min").order("name"));
+    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first").eq("guild_id", G()).order("respawn_min").order("name"));
     const now = kstIso(new Date());
     v.innerHTML = `
       <div class="card">
@@ -160,16 +160,17 @@
         <div class="table-wrap"><table>
           <thead><tr><th>보스</th><th>표시 이름</th><th>리젠 / 일정</th><th>별명</th><th>상태</th><th></th></tr></thead>
           <tbody>${rows.map((b) => {
-            const hidden = b.hidden_until && b.hidden_until > now;
-            return `<tr data-name="${esc(b.name)}" class="${hidden ? "hidden-boss" : ""}">
+            const waiting = !!b.wait_first, hidden = !waiting && b.hidden_until && b.hidden_until > now;
+            return `<tr data-name="${esc(b.name)}" class="${hidden || waiting ? "hidden-boss" : ""}">
               <td><b>${esc(b.name)}</b></td>
               <td><input name="display" value="${esc(b.display || "")}" placeholder="${esc(b.name)}"></td>
               <td><input name="rule" value="${esc(fmtRule(b))}"></td>
               <td><input name="aliases" value="${esc((b.aliases || "").split(",").filter(Boolean).join(", "))}"></td>
-              <td>${hidden ? `<span class="badge off">제외 ~${fmtDate(b.hidden_until)}</span>` : `<span class="badge">활성</span>`}</td>
+              <td>${waiting ? `<span class="badge off" title="첫 컷이 들어오면 자동으로 켜져요">첫 컷 대기</span>` : hidden ? `<span class="badge off">제외 ~${fmtDate(b.hidden_until)}</span>` : `<span class="badge">활성</span>`}</td>
               <td class="row">
                 <button data-act="save" class="primary">저장</button>
-                <button data-act="${hidden ? "unhide" : "hide"}">${hidden ? "제외 해제" : "30일 제외"}</button>
+                ${waiting ? `<button data-act="unhide">대기 해제</button>` : hidden ? `<button data-act="unhide">제외 해제</button>`
+                  : `<button data-act="hide">30일 제외</button><button data-act="wait" title="아직 못 잡는 보스: 첫 컷 전까지 알림·시간표에서 빠져요">첫 컷 대기</button>`}
                 <button data-act="delete" class="danger ghost">삭제</button>
               </td></tr>`;
           }).join("")}</tbody></table></div>
@@ -201,8 +202,11 @@
         await q(where(sb.from("bosses").update({ hidden_until: kstIso(new Date(Date.now() + 30 * 86400e3)) })));
         toast(`${name} 30일 동안 제외`); render();
       } else if (btn.dataset.act === "unhide") {
-        await q(where(sb.from("bosses").update({ hidden_until: null })));
-        toast(`${name} 제외 해제`); render();
+        await q(where(sb.from("bosses").update({ hidden_until: null, wait_first: 0 })));
+        toast(`${name} 다시 켰어요`); render();
+      } else if (btn.dataset.act === "wait") {
+        await q(where(sb.from("bosses").update({ hidden_until: "9999-12-31T00:00:00+09:00", wait_first: 1 })));
+        toast(`${name} 첫 컷 대기 — 첫 컷이 들어오면 자동으로 켜져요`); render();
       } else if (btn.dataset.act === "delete") {
         if (!confirm(`${name}을(를) 완전히 삭제할까요? (컷 기록은 남아요)`)) return;
         await q(where(sb.from("bosses").delete()));
