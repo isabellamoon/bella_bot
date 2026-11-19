@@ -270,7 +270,9 @@
         <div class="chips" style="margin-top:10px">${voice.map((c) => `<label><input type="checkbox" class="g-ch" value="${c.channel_id}" ${greetSet.has(c.channel_id) ? "checked" : ""}> ${esc(c.name)}</label>`).join("") || `<span class="muted small">음성 채널 정보가 아직 없어요</span>`}</div>
       </div>
       <p><button class="primary" id="s-save">설정 저장</button></p>
+      <div class="card" id="m-card"><h2>📣 알림 멘션</h2><p class="muted small">불러오는 중…</p></div>
       <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>`;
+    mentionCard();
     sheetCard();
     $("#s-save").onclick = async () => {
       const offs = [...new Set(($("#s-alerts").value.match(/\d+/g) || []).map(Number))].sort((a, b) => b - a);
@@ -284,6 +286,110 @@
         greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(","),
       }, { onConflict: "guild_id" }));
       toast("설정을 저장했어요");
+    };
+  }
+
+  // ---------- 알림 멘션 ----------
+  // 오른쪽 팔레트(@everyone · @here · 서버 역할)를 왼쪽 알림 칸에 끌어다 놓기. 휴대폰은 칩 누르고 → 칸 누르기.
+  // 저장은 boss_settings.mentions (JSON: 알림 종류 → ["everyone" | "here" | 역할 ID]). 봇의 boss.py MENTION_SLOTS 와 같은 키.
+  const MENTION_SLOTS = [
+    ["boss_pre", "보스 출현 n분 전", "출현 알림 (설정한 몇 분 전)"],
+    ["boss_spawn", "보스 출현 시각", "출현 시각 알림 + 음성"],
+    ["raid_open", "보스레이드 모집", "출현 n분 전 자동 모집 · /레이드모집"],
+    ["war_1h", "길드전 1시간 전", "일요일 19:00"],
+    ["war_5m", "길드전 5분 전 · 레기온 모집", "일요일 19:55"],
+    ["reserve", "예약 전투", "아카디아 등 예약 전투 알림 · 모집"],
+  ];
+  async function mentionCard() {
+    const card = $("#m-card"); if (!card) return;
+    const gid = G();
+    const [roles, rows, gs] = await Promise.all([
+      q(sb.from("web_roles").select("role_id::text,name,color,position,mentionable").eq("guild_id", gid).order("position", { ascending: false })),
+      q(sb.from("boss_settings").select("mentions").eq("guild_id", gid)),
+      q(sb.from("web_guilds").select("can_everyone").eq("guild_id", gid)),
+    ]);
+    if (G() !== gid || !$("#m-card")) return;
+    const canAll = !!(gs[0] && gs[0].can_everyone);
+    let map = {};
+    try { map = JSON.parse((rows[0] && rows[0].mentions) || "{}") || {}; } catch (e) { map = {}; }
+    MENTION_SLOTS.forEach(([k]) => (map[k] = (map[k] || []).map(String)));
+    const hex = (c) => (c ? "#" + Number(c).toString(16).padStart(6, "0") : "#99aab5");
+    const PAL = [
+      { id: "everyone", name: "@everyone", color: "#fbbf24", special: true, ok: canAll },
+      { id: "here", name: "@here", color: "#fb923c", special: true, ok: canAll },
+      ...roles.map((r) => ({ id: r.role_id, name: "@" + r.name, color: hex(r.color), ok: canAll || !!r.mentionable })),
+    ];
+    const byId = (id) => PAL.find((r) => r.id === id);
+    let picked = null, dirty = false;
+
+    card.innerHTML = `
+      <h2>📣 알림 멘션</h2>
+      <p class="muted small">오른쪽 칩을 왼쪽 알림 칸에 끌어다 놓으세요. 휴대폰은 칩을 누르고 → 알림 칸을 누르면 돼요. 칩에 마우스를 올리면 연결된 칸이 표시돼요.
+        역할을 새로 만들었으면 디스코드 관리판 [🔄 새로고침]을 누르면 바로 보여요.</p>
+      <div class="mx">
+        <div class="mx-slots" id="mx-slots"></div>
+        <aside class="mx-palette">
+          <h3>멘션 팔레트</h3>
+          <div class="chips" id="mx-pal"></div>
+          <p class="legend">⚠️ = 지금은 불러도 알림이 안 울려요 (역할의 '누구나 멘션 가능'이 꺼져 있고, 봇에게 '@everyone 멘션' 권한도 없음).
+            아무것도 안 놓은 알림은 🔕 조용히 올라가요.</p>
+        </aside>
+      </div>
+      <p style="margin-top:12px"><button class="primary" id="mx-save">멘션 저장</button> <span class="muted small" id="mx-sum"></span></p>`;
+
+    function pal() {
+      $("#mx-pal").innerHTML = PAL.map((r) => `<span class="pchip ${r.special ? "special" : ""} ${picked === r.id ? "sel" : ""}" draggable="true" data-role="${esc(r.id)}" style="--rc:${r.color}">
+        <span class="dot"></span>${esc(r.name)}${r.ok ? "" : ` <span class="warn" title="지금은 안 울려요">⚠️</span>`}</span>`).join("")
+        || `<span class="muted small">역할 정보가 아직 없어요. 관리판 [🔄 새로고침]을 눌러 주세요.</span>`;
+    }
+    function slots() {
+      $("#mx-slots").innerHTML = MENTION_SLOTS.map(([k, name, note]) => `
+        <div class="slot" data-slot="${k}">
+          <div class="slot-head"><b>${name}</b><span class="muted">${note}</span></div>
+          <div class="slot-drop">${map[k].filter(byId).map((id) => { const r = byId(id); return `<span class="tag ${r.ok ? "" : "warned"}" style="--rc:${r.color}">${esc(r.name)}<button data-rm="${esc(id)}" aria-label="빼기">✕</button></span>`; }).join("")}</div>
+        </div>`).join("");
+      const n = MENTION_SLOTS.filter(([k]) => map[k].some(byId)).length;
+      $("#mx-sum").textContent = `알림 ${MENTION_SLOTS.length}개 중 ${n}개에 멘션 연결됨` + (dirty ? " · 저장 안 됨" : "");
+    }
+    function add(k, id) {
+      if (!map[k].includes(id)) { map[k].push(id); dirty = true; }
+      const r = byId(id);
+      if (r && !r.ok) toast(`${r.name}: 지금은 불러도 알림이 안 울려요 (⚠️ 설명 참고)`);
+      slots();
+    }
+    pal(); slots();
+    const S = $("#mx-slots"), P = $("#mx-pal");
+    P.addEventListener("dragstart", (e) => { const c = e.target.closest("[data-role]"); if (c) e.dataTransfer.setData("text/plain", c.dataset.role); });
+    S.addEventListener("dragover", (e) => { const s = e.target.closest(".slot"); if (s) { e.preventDefault(); s.classList.add("over"); } });
+    S.addEventListener("dragleave", (e) => { const s = e.target.closest(".slot"); if (s && !s.contains(e.relatedTarget)) s.classList.remove("over"); });
+    S.addEventListener("drop", (e) => {
+      const s = e.target.closest(".slot"); if (!s) return;
+      e.preventDefault(); s.classList.remove("over");
+      const id = e.dataTransfer.getData("text/plain"); if (id && byId(id)) add(s.dataset.slot, id);
+    });
+    P.addEventListener("click", (e) => {
+      const c = e.target.closest("[data-role]"); if (!c) return;
+      picked = picked === c.dataset.role ? null : c.dataset.role;
+      pal();
+      S.querySelectorAll(".slot").forEach((s) => s.classList.toggle("pick", !!picked));
+      if (picked) toast("이제 연결할 알림 칸을 누르세요");
+    });
+    S.addEventListener("click", (e) => {
+      const rm = e.target.closest("button[data-rm]");
+      if (rm) { const k = rm.closest(".slot").dataset.slot; map[k] = map[k].filter((x) => x !== rm.dataset.rm); dirty = true; slots(); return; }
+      const s = e.target.closest(".slot");
+      if (s && picked) { add(s.dataset.slot, picked); picked = null; pal(); S.querySelectorAll(".slot").forEach((x) => x.classList.remove("pick")); }
+    });
+    P.addEventListener("mouseover", (e) => {
+      const c = e.target.closest("[data-role]");
+      S.querySelectorAll(".slot").forEach((s) => s.classList.toggle("lit", !!c && map[s.dataset.slot].includes(c.dataset.role)));
+    });
+    P.addEventListener("mouseleave", () => S.querySelectorAll(".slot").forEach((s) => s.classList.remove("lit")));
+    $("#mx-save").onclick = async () => {
+      const clean = {};
+      MENTION_SLOTS.forEach(([k]) => { const v = map[k].filter(byId); if (v.length) clean[k] = v; });
+      await q(sb.from("boss_settings").upsert({ guild_id: G(), mentions: JSON.stringify(clean) }, { onConflict: "guild_id" }));
+      dirty = false; slots(); toast("알림 멘션을 저장했어요");
     };
   }
 

@@ -141,3 +141,32 @@ summary { cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wr
   .helper-box { left: 236px; right: auto; bottom: 28px; width: 380px; }
   .helper.open .helper-char { transform: none; }
 }
+
+/* ---------- 알림 멘션 (설정 탭) ---------- */
+.mx { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+.mx-slots { display: flex; flex-direction: column; gap: 10px; }
+.slot { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; transition: border-color .15s, background .15s; }
+.slot.over, .slot.pick { border-color: var(--accent); background: rgba(167,139,250,.10); }
+.slot.lit { border-color: var(--accent-2); }
+.slot-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.slot-head .muted { font-size: 12px; }
+.slot-drop { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; padding: 4px; border: 1px dashed var(--line); border-radius: 9px; }
+.slot-drop:empty::before { content: "🔕 조용히 (여기에 역할을 끌어다 놓으세요)"; color: var(--muted); font-size: 13px; padding: 4px 6px; }
+.mx-palette { position: sticky; top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.mx-palette h3 { margin: 0 0 8px; font-size: 15px; }
+.mx-palette .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px; font-size: 13px; cursor: grab;
+  background: var(--panel-2); border: 1px solid var(--rc, var(--line)); color: var(--text); user-select: none; }
+.pchip .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rc, var(--muted)); }
+.pchip.sel { outline: 2px solid var(--accent); }
+.pchip.special { border-style: dashed; }
+.pchip .warn { color: var(--warn); font-size: 12px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 10px; border-radius: 99px; font-size: 13px;
+  background: color-mix(in srgb, var(--rc, var(--muted)) 22%, transparent); border: 1px solid var(--rc, var(--line)); }
+.tag button { border: 0; background: transparent; color: var(--muted); padding: 0 5px; font-size: 12px; }
+.tag.warned::after { content: "⚠️"; font-size: 11px; margin-right: 3px; }
+.mx .legend { font-size: 12px; color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
+@media (max-width: 760px) {
+  .mx { grid-template-columns: 1fr; }
+  .mx-palette { position: sticky; top: 0; z-index: 5; order: -1; }
+}
