@@ -226,11 +226,11 @@
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
       q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game").eq("guild_id", G())),
-      q(sb.from("web_channels").select("channel_id::text,name,kind,position").eq("guild_id", G()).order("position")),
+      q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
     const text = chans.filter((c) => c.kind === "text"), voice = chans.filter((c) => c.kind === "voice");
-    const opts = (list, cur) => `<option value="">— 지정 안 함 —</option>` + list.map((c) => `<option value="${c.channel_id}" ${c.channel_id === cur ? "selected" : ""}>${c.kind === "voice" ? "🔊" : "#"} ${esc(c.name)}</option>`).join("");
+    const opts = (list, cur) => `<option value="">— 지정 안 함 —</option>` + list.map((c) => `<option value="${c.channel_id}" ${c.channel_id === cur ? "selected" : ""}>${c.kind === "voice" ? "🔊" : "#"} ${esc(c.name)}${c.bot_ok === 0 ? " ⚠️ 봇 권한 없음" : ""}</option>`).join("");
     const greet = s.greet_channels == null ? "all" : s.greet_channels === "" ? "off" : "pick";
     const greetSet = new Set((s.greet_channels || "").split(",").filter(Boolean));
     const GAMES = [["zeus", "제우스: 오만의 신"], ["odin", "오딘 (준비 중)"], ["sol", "솔: 인첸트 (준비 중)"],
@@ -267,7 +267,7 @@
           <label><input type="radio" name="greet" value="pick" ${greet === "pick" ? "checked" : ""}> 고른 채널만</label>
           <label><input type="radio" name="greet" value="off" ${greet === "off" ? "checked" : ""}> 끄기</label>
         </div>
-        <div class="chips" style="margin-top:10px">${voice.map((c) => `<label><input type="checkbox" class="g-ch" value="${c.channel_id}" ${greetSet.has(c.channel_id) ? "checked" : ""}> ${esc(c.name)}</label>`).join("") || `<span class="muted small">음성 채널 정보가 아직 없어요</span>`}</div>
+        <div class="chips" style="margin-top:10px">${voice.map((c) => `<label><input type="checkbox" class="g-ch" value="${c.channel_id}" ${greetSet.has(c.channel_id) ? "checked" : ""}> ${esc(c.name)}${c.bot_ok === 0 ? " ⚠️" : ""}</label>`).join("") || `<span class="muted small">음성 채널 정보가 아직 없어요</span>`}</div>
       </div>
       <p><button class="primary" id="s-save">설정 저장</button></p>
       <div class="card" id="m-card"><h2>📣 알림 멘션</h2><p class="muted small">불러오는 중…</p></div>
