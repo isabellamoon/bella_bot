@@ -244,7 +244,7 @@
       <div class="card">
         <h2>알림 · 참여</h2>
         <div class="grid">
-          <label class="field">보스레이드 모집을 출현 몇 분 전에 (0 = 안 함)<input id="s-lead" type="number" min="0" max="120" value="${s.recruit_lead ?? 5}"></label>
+          <label class="field">모집 알림을 출현 몇 분 전에 (0 = 안 함 · 참여는 컷 후)<input id="s-lead" type="number" min="0" max="120" value="${s.recruit_lead ?? 5}"></label>
           <label class="field">출현 알림 (분 전, 쉼표)<input id="s-alerts" value="${esc(s.alert_offsets ?? "5,1")}"></label>
           <label class="field">컷 후 참여 받는 시간 (분)<input id="s-raid" type="number" min="1" max="120" value="${s.raid_minutes ?? 5}"></label>
         </div>
@@ -295,7 +295,7 @@
   const MENTION_SLOTS = [
     ["boss_pre", "보스 출현 n분 전", "출현 알림 (설정한 몇 분 전)"],
     ["boss_spawn", "보스 출현 시각", "출현 시각 알림 + 음성"],
-    ["raid_open", "보스레이드 모집", "출현 n분 전 자동 모집 · /레이드모집"],
+    ["raid_open", "보스레이드 모집 알림", "출현 n분 전 알림 · /레이드모집"],
     ["war_1h", "길드전 1시간 전", "일요일 19:00"],
     ["war_5m", "길드전 5분 전 · 레기온 모집", "일요일 19:55"],
     ["reserve", "예약 전투", "아카디아 등 예약 전투 알림 · 모집"],
