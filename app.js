@@ -250,7 +250,7 @@
         </div>
       </div>
       <div class="card">
-        <h2>🪶 버추얼 벨라</h2>
+        <h2>✒️ 버추얼 벨라</h2>
         <p class="muted small">게임 화면 위에 띄우는 컷 앱(윈도우 · 안드로이드)에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
         <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
       </div>
