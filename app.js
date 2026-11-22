@@ -375,7 +375,10 @@
         <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
         <p><button class="primary" id="vb-save">저장</button></p>
       </div>
+      <div class="card"><h2>⬇️ 앱 받기</h2><div id="vb-dl"></div>
+        <p class="muted small">새 버전은 봇이 💾 백업 드라이브(없으면 구글 시트 계정)에 올려요. 길드원도 받게 하려면 위 길드원 권한에서 '버추얼 벨라 받기'를 켜 주세요.</p></div>
       <div class="card"><h2>데스노트 · 화이트리스트</h2><div id="vb-lists"></div></div>`;
+    vbDownload($("#vb-dl"));
     $("#vb-save").onclick = async () => {
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), virtual_bella: $("#vb-on").checked ? 1 : 0,
@@ -933,8 +936,7 @@
           <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력</li>
           <li><b>게임 닉네임 등록</b> — 디스코드에서 <code>/닉등록 게임닉</code></li>
         </ul>
-        <div id="vb-dl">${pm.download ? `<button class="primary" disabled>버추얼 벨라 받기 (준비 중)</button>
-          <p class="muted small">받기 파일은 곧 올라와요. 그 전에는 관리자에게 받아 주세요.</p>`
+        <div id="vb-dl">${pm.download ? `<p class="muted small">받기 파일 확인 중…</p>`
           : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
       </div>
       <div class="card"><h2>🤍 내 화이트리스트 (우리 쪽 부캐)</h2>
@@ -943,6 +945,7 @@
           <div class="row"><input id="w-new" placeholder="게임 닉네임"><button id="w-add">넣기</button></div>`
           : `<p class="muted small">🔒 이 서버는 관리자만 화이트리스트를 등록할 수 있어요.</p>`}
       </div>`;
+    if (pm.download) vbDownload($("#vb-dl"));
     const add = $("#w-add");
     if (add) add.onclick = async () => {
       const nm = $("#w-new").value.trim(); if (!nm) return;
@@ -951,6 +954,16 @@
     v.querySelectorAll("[data-wdel]").forEach((b) => (b.onclick = async () => {
       await q(sb.rpc("web_white_del", { gid: G(), nm: b.dataset.wdel })); toast("뺐어요"); render();
     }));
+  }
+
+  // [버추얼 벨라 받기]: 권한 있으면 드라이브 링크 (봇이 새 버전을 올리면 링크도 바뀜)
+  async function vbDownload(box) {
+    if (!box) return;
+    const r = (await q(sb.rpc("web_vb_download", { gid: G() })))[0];
+    box.innerHTML = r
+      ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener"><button class="primary">⬇️ 버추얼 벨라 받기 (${esc(r.version)})</button></a></p>
+         <p class="muted small">올린 날: ${fmtDate(r.uploaded_at)} · 받은 zip 을 풀어 설치 안내대로 해 주세요. 링크는 남에게 공유하지 마세요.</p>`
+      : `<p class="muted small">아직 올라온 파일이 없어요. 관리자에게 받아 주세요.</p>`;
   }
 
   const MEMBER_TABS = { bosses: memberBoardTab, attendance: memberAttendanceTab, vbella: memberVbellaTab };
