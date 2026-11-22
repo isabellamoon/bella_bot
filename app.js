@@ -108,7 +108,17 @@
     $("#btn-logout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
     state.allGuilds = await q(sb.from("web_guilds").select("guild_id::text,name,icon_url,owner_id::text,owner_name,member_count,joined_at,left_at").order("name"));
-    state.guilds = state.allGuilds.filter((g) => !g.left_at);   // 지금 봇이 들어가 있는 서버만 고를 수 있음
+    // 길드원 확인: 봇이 들어가 있는 서버마다 내가 멤버인지 봇이 디스코드에 물어봄 (1~2초)
+    try {
+      const rid = await q(sb.rpc("web_member_request"));
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 800));
+        if ((await q(sb.rpc("web_member_status", { rid }))) === "done") break;
+      }
+    } catch (e) { /* 확인 실패해도 지난 확인 기록(7일)으로 진행 */ }
+    // 관리자 서버(staff) + 길드원 서버(member). 지금 봇이 들어가 있는 서버만
+    state.guilds = await q(sb.rpc("web_my_guilds"));
+    for (const g of state.guilds) Object.assign(g, state.allGuilds.find((x) => x.guild_id === g.guild_id) || {});
     if (!state.guilds.length) { $("#noguild").hidden = false; return; }
     const ownerRows = await q(sb.from("web_owners").select("user_id::text"));
     state.botOwner = ownerRows.length > 0;
@@ -136,9 +146,20 @@
   async function selectGuild(gid) {
     state.gid = gid;
     const g = state.guilds.find((x) => x.guild_id === gid);
+    // 길드원(관리자 아님): 보스 현황(읽기) · 내 출석 · 버추얼 벨라 탭만
+    state.member = !!g && g.role === "member";
+    const MEMBER_OK = ["bosses", "attendance", "vbella"];
+    document.querySelectorAll("#tabs button[data-tab]").forEach((b) => {
+      if (b.id === "tab-servers") { b.hidden = !state.botOwner; return; }
+      b.hidden = state.member && !MEMBER_OK.includes(b.dataset.tab);
+    });
+    if (state.member && !MEMBER_OK.includes(state.tab)) {
+      state.tab = "bosses";
+      document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === "bosses"));
+    }
     state.owner = state.botOwner || (g && g.owner_id === state.me.id);
     // 우상단에 이 서버에서의 내 역할 표시
-    let role = state.botOwner ? "👑 봇 주인" : g && g.owner_id === state.me.id ? "🏰 서버 주인" : null;
+    let role = state.botOwner ? "👑 봇 주인" : g && g.owner_id === state.me.id ? "🏰 서버 주인" : state.member ? "🙋 길드원" : null;
     if (!role) {
       const mine = await q(sb.from("bot_admins").select("user_id::text").eq("guild_id", gid).eq("user_id", state.me.id));
       role = mine.length ? "🛡️ 관리자" : null;
@@ -151,7 +172,7 @@
   async function render() {
     const v = $("#view");
     v.innerHTML = `<div class="card muted">불러오는 중…</div>`;
-    try { await TABS[state.tab](v); } catch (e) { console.error(e); v.innerHTML = `<div class="card">불러오지 못했어요: ${esc(e.message)}</div>`; }
+    try { await (state.member ? MEMBER_TABS : TABS)[state.tab](v); } catch (e) { console.error(e); v.innerHTML = `<div class="card">불러오지 못했어요: ${esc(e.message)}</div>`; }
   }
   const G = () => state.gid;
   // sessionStorage 를 못 쓰는 환경에서도 안 깨지게. take=true 면 읽고 지움
@@ -630,8 +651,11 @@
       q(sb.from("boss_settings").select("cp_start,cp_days").eq("guild_id", gid)),
       q(sb.from("checkpoints").select("at,name").eq("guild_id", gid)),
     ]);
+    return segmentsFrom(st[0]?.cp_start, st[0]?.cp_days, cps);
+  }
+  function segmentsFrom(cpStart, cpDays, cps) {
     const nowMs = Date.now(), b = new Map();
-    const s0 = st[0] || {};
+    const s0 = { cp_start: cpStart, cp_days: cpDays };
     if (s0.cp_start && s0.cp_days > 0) {
       let t = Date.parse(`${s0.cp_start}T00:00:00+09:00`);
       while (t <= nowMs + (s0.cp_days + 1) * 864e5) { b.set(t, ""); t += s0.cp_days * 864e5; }
@@ -844,6 +868,92 @@
       await block($("#bl-kind").value, id, $("#bl-note").value.trim());
     };
   }
+
+  // ---------- 길드원 화면 ----------
+  async function memberBoardTab(v) {
+    const rows = await q(sb.rpc("web_board", { gid: G() }));
+    const nowMs = Date.now();
+    const when = (at) => {
+      const p = kstParts(at), t = kstParts(new Date().toISOString());
+      const day = p.y === t.y && p.mo === t.mo && p.d === t.d ? "" : `${pad(p.mo)}/${pad(p.d)} `;
+      return `${day}${pad(p.h)}:${pad(p.mi)}`;
+    };
+    const left = (at) => {
+      const m = Math.round((Date.parse(at) - nowMs) / 6e4);
+      if (m <= 0) return "";
+      return m >= 60 ? ` (${Math.floor(m / 60)}시간 ${m % 60}분 후)` : ` (${m}분 후)`;
+    };
+    const line = (r) => r.alive ? `🟢 <b>${esc(r.label)}</b> — 출현 중`
+      : !r.at ? `⚪ <b>${esc(r.label)}</b> — 시간 모름`
+      : Date.parse(r.at) <= nowMs ? `🔴 <b>${esc(r.label)}</b> — 출현 가능 (${when(r.at)}부터)`
+      : `${r.kind === "schedule" ? "🗓️" : "⏳"} <b>${esc(r.label)}</b> — <b>${when(r.at)}</b> 출현${left(r.at)}`;
+    v.innerHTML = `<div class="card"><h2>⚔️ 보스 현황</h2>
+      <p class="muted small">읽기 전용이에요. 컷 · 보스 설정은 디스코드에서 해요. 30초마다 갱신돼요.</p>
+      <div class="board-list">${rows.map((r) => `<div>${line(r)}</div>`).join("") || `<p class="muted">등록된 보스가 없어요.</p>`}</div></div>`;
+  }
+
+  async function memberAttendanceTab(v) {
+    const cp = (await q(sb.rpc("web_cp", { gid: G() }))) || {};
+    const segs = segmentsFrom(cp.cp_start, cp.cp_days, cp.checkpoints || []);
+    const now = kstParts(new Date().toISOString());
+    if (state.period === undefined) state.period = segs.length ? "seg:0" : "month";
+    const month = state.month || `${now.y}-${pad(now.mo)}`;
+    const [y, mo] = month.split("-").map(Number);
+    let start = `${y}-${pad(mo)}-01T00:00:00+09:00`;
+    let end = mo === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(mo + 1)}-01T00:00:00+09:00`;
+    let label = `${y}년 ${mo}월`;
+    if (state.period.startsWith("seg:") && segs[+state.period.slice(4)]) {
+      const sg = segs[+state.period.slice(4)];
+      start = sg.start; end = sg.end || "2999-01-01T00:00:00+09:00"; label = sg.label;
+    }
+    const rows = await q(sb.rpc("web_my_attendance", { gid: G(), s: start, e: end }));
+    const counted = rows.filter((r) => r.category !== "event");
+    const nb = counted.filter((r) => r.category === "battle").length;
+    const icon = { battle: "🛡️", event: "📋" };
+    v.innerHTML = `<div class="card">
+      <div class="row"><h2 style="margin:0">내 출석</h2>
+        <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
+          ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
+        <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}></div>
+      <p class="muted">${esc(label)} · <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 레기온 ${nb})${rows.length > counted.length ? ` · 📋 행사 ${rows.length - counted.length}회` : ""}</p>
+      <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
+    $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
+    $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
+  }
+
+  async function memberVbellaTab(v) {
+    const pm = (await q(sb.rpc("web_vb_perms", { gid: G() }))) || {};
+    const whites = pm.white ? await q(sb.rpc("web_white_list", { gid: G() })) : [];
+    v.innerHTML = `
+      <div class="card">
+        <h2>✒️ 버추얼 벨라 (게임 화면 위 도우미 앱)</h2>
+        ${pm.on ? "" : `<p style="color:var(--warn)">이 서버는 아직 버추얼 벨라를 켜지 않았어요. 관리자에게 물어보세요.</p>`}
+        <ul class="vb-steps">
+          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) · 백신 예외 · 되돌리기</li>
+          <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력</li>
+          <li><b>게임 닉네임 등록</b> — 디스코드에서 <code>/닉등록 게임닉</code></li>
+        </ul>
+        <div id="vb-dl">${pm.download ? `<button class="primary" disabled>버추얼 벨라 받기 (준비 중)</button>
+          <p class="muted small">받기 파일은 곧 올라와요. 그 전에는 관리자에게 받아 주세요.</p>`
+          : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
+      </div>
+      <div class="card"><h2>🤍 내 화이트리스트 (우리 쪽 부캐)</h2>
+        ${pm.white ? `<p class="muted small">여기 넣은 닉네임은 데스노트에 있어도 적대 알림이 안 떠요. 나만 보여요.</p>
+          <div class="members">${whites.map((w) => `<span class="member">${esc(w.name)}<button title="빼기" data-wdel="${esc(w.name)}">×</button></span>`).join("") || `<span class="muted small">비어 있어요</span>`}</div>
+          <div class="row"><input id="w-new" placeholder="게임 닉네임"><button id="w-add">넣기</button></div>`
+          : `<p class="muted small">🔒 이 서버는 관리자만 화이트리스트를 등록할 수 있어요.</p>`}
+      </div>`;
+    const add = $("#w-add");
+    if (add) add.onclick = async () => {
+      const nm = $("#w-new").value.trim(); if (!nm) return;
+      await q(sb.rpc("web_white_add", { gid: G(), nm })); toast(`${nm} 넣었어요`); render();
+    };
+    v.querySelectorAll("[data-wdel]").forEach((b) => (b.onclick = async () => {
+      await q(sb.rpc("web_white_del", { gid: G(), nm: b.dataset.wdel })); toast("뺐어요"); render();
+    }));
+  }
+
+  const MEMBER_TABS = { bosses: memberBoardTab, attendance: memberAttendanceTab, vbella: memberVbellaTab };
 
   const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab, vbella: vbellaTab };
   start();
