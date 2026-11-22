@@ -20,6 +20,8 @@
       <h2 id="title">연결하는 중…</h2>
       <p class="muted" id="msg">잠시만 기다려 주세요. 봇이 연결을 마무리하고 있어요.</p>
       <p id="link" hidden><a id="open" target="_blank" rel="noopener"><button class="primary" id="open-label">열기</button></a></p>
+      <p id="retry-box" hidden><button class="primary" id="retry">다시 연결</button></p>
+      <p id="back-box" class="small" hidden><a href="./#settings">관리판으로</a></p>
     </section>
   </main>
   <footer class="ground" aria-hidden="true"></footer>
@@ -30,16 +32,41 @@
   // 구글 허용 후 돌아오는 페이지: 일회용 코드를 Supabase 에 넘기고, 봇이 시트를 만들 때까지 기다린다.
   (async () => {
     const cfg = window.BOT_CONFIG;
-    const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    // 웹 관리 화면과 같은 로그인(저장된 세션)을 씀 — [다시 연결] 은 관리자 로그인이 필요
+    const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
     const p = new URLSearchParams(location.search);
     history.replaceState(null, "", location.pathname);   // 주소창에서 코드 지우기
     const title = document.getElementById("title"), msg = document.getElementById("msg");
     const fail = (t) => { title.textContent = "연결하지 못했어요"; msg.textContent = t; };
-    if (p.get("error")) return fail(p.get("error") === "access_denied" ? "허용을 취소했어요. 다시 연결하려면 관리 페이지나 디스코드 관리판에서 다시 눌러 주세요." : "구글 오류: " + p.get("error"));
+    // [다시 연결]: 같은 서버 · 같은 종류로 바로 다시 승인. 로그인이 끊겼으면 로그인한 뒤 이 페이지로 돌아와 이어서
+    const retry = async (old) => {
+      const { data: s } = await sb.auth.getSession();
+      if (!s || !s.session) {
+        try { localStorage.setItem("google_retry", old); } catch (e) {}
+        location.href = "./";
+        return;
+      }
+      const { data, error } = await sb.rpc("google_retry", { st: old });
+      const r = data && data[0];
+      if (error || !r) return fail(error ? error.message : "다시 연결하지 못했어요.");
+      location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+        client_id: cfg.GOOGLE_CLIENT_ID, redirect_uri: cfg.GOOGLE_REDIRECT, response_type: "code",
+        scope: "https://www.googleapis.com/auth/drive.file", access_type: "offline", prompt: "consent", state: r.state,
+      });
+    };
+    const failRetry = (t, old) => {
+      fail(t);
+      document.getElementById("back-box").hidden = false;
+      if (!old) return;
+      document.getElementById("retry-box").hidden = false;
+      document.getElementById("retry").onclick = () => retry(old);
+    };
+    if (p.get("retry")) return retry(p.get("retry"));      // 로그인하고 돌아온 경우
     const st = p.get("state"), code = p.get("code");
+    if (p.get("error")) return failRetry(p.get("error") === "access_denied" ? "허용을 취소했어요." : "구글 오류: " + p.get("error"), st);
     if (!st || !code) return fail("잘못된 접근이에요.");
     const { data: ok, error } = await sb.rpc("google_submit", { st, c: code });
-    if (error || !ok) return fail("연결 링크가 만료됐거나 이미 쓴 링크예요. 처음부터 다시 눌러 주세요.");
+    if (error || !ok) return failRetry("연결 링크가 만료됐거나 이미 쓴 링크예요.", st);
     for (let i = 0; i < 40; i++) {
       await new Promise((r) => setTimeout(r, 1500));
       const { data } = await sb.rpc("google_status", { st });

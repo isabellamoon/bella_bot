@@ -98,6 +98,12 @@
       provider: "discord", options: { redirectTo: location.origin + location.pathname },
     }));
     const { data } = await sb.auth.getSession();
+    // 구글 연결 페이지 [다시 연결] 하다 로그인하러 온 경우: 로그인 끝나면 그 페이지로 돌아가 이어서
+    if (data && data.session) {
+      let back = null;
+      try { back = localStorage.getItem("google_retry"); localStorage.removeItem("google_retry"); } catch (e) {}
+      if (back) { location.href = "google.html?retry=" + encodeURIComponent(back); return; }
+    }
     sb.auth.onAuthStateChange((_e, session) => { if (!!session !== !!state.me) location.reload(); });
     if (!data.session) { $("#login").hidden = false; return; }
     const u = data.session.user.user_metadata || {};
