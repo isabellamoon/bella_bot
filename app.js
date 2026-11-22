@@ -123,6 +123,12 @@
       document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
       state.tab = b.dataset.tab; render();
     };
+    const want = location.hash.slice(1);
+    const tb = want && document.querySelector(`#tabs button[data-tab="${want}"]:not([hidden])`);
+    if (tb && TABS[want]) {
+      state.tab = want;
+      document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x === tb));
+    }
     $("#main").hidden = false;
     selectGuild(sel.value);
   }
@@ -268,19 +274,6 @@
         </div>
       </div>
       <div class="card">
-        <h2>✒️ 버추얼 벨라</h2>
-        <p class="muted small">게임 화면 위에 띄우는 컷 앱(윈도우 · 안드로이드)에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
-        <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
-        <h3 class="small" style="margin:14px 0 6px">길드원 권한 <span class="muted">(관리자는 항상 가능)</span></h3>
-        <div class="grid">
-          ${[["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1], ["download", "버추얼 벨라 받기 (웹)", 0], ["rally", "뿔피리 (앱 전체에 용사집결)", 0]]
-            .map(([k, t, d]) => `<label><input type="checkbox" class="vb-perm" data-k="${k}" ${(s["vb_member_" + k] ?? d) ? "checked" : ""}> ${t}</label>`).join("")}
-        </div>
-        <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
-        <p class="muted small">앱 로그인: 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱에 입력 · 끊기 <code>/벨라연결해제</code> · 화이트리스트 <code>/화이트</code> <code>/화이트목록</code> <code>/화이트삭제</code></p>
-        <div id="vb-lists"></div>
-      </div>
-      <div class="card">
         <h2>채널</h2>
         <p class="muted small">채널을 바꾼 뒤에는 디스코드 관리판 [🔄 새로고침]을 눌러 주세요. 시간표는 1분 안에 새 채널로 옮겨져요.</p>
         <div class="grid">
@@ -312,16 +305,52 @@
       const val = (id) => $(id).value || null;
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
-        virtual_bella: $("#s-vb").checked ? 1 : 0,
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
-        ...Object.fromEntries([...v.querySelectorAll(".vb-perm")].map((c) => ["vb_member_" + c.dataset.k, c.checked ? 1 : 0])),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
         shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
         greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(","),
       }, { onConflict: "guild_id" }));
       toast("설정을 저장했어요");
+    };
+  }
+
+  // ---------- 버추얼 벨라 탭: 안내 · 설정(켜기 · 길드원 권한) · 데스노트 · 화이트리스트 ----------
+  async function vbellaTab(v) {
+    const rows = await q(sb.from("boss_settings").select("virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally").eq("guild_id", G()));
+    const s = rows[0] || {};
+    const PERMS = [["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1],
+                   ["download", "버추얼 벨라 받기 (웹)", 0], ["rally", "뿔피리 (앱 전체에 용사집결)", 0]];
+    v.innerHTML = `
+      <div class="card">
+        <h2>✒️ 버추얼 벨라 (게임 화면 위 도우미 앱)</h2>
+        <p class="muted">보스 컷 · 출현 예고 · 현황판 스캔 · 참여자 확인 · 뿔피리를 게임 화면 위에서 바로 해요.</p>
+        <ul class="vb-steps">
+          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) 받기 · 백신 예외 · 되돌리기</li>
+          <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력 · 끊기 <code>/벨라연결해제</code></li>
+          <li><b>화이트리스트</b> — <code>/화이트 닉네임</code> · <code>/화이트목록</code> · <code>/화이트삭제</code> (나만 보여요)</li>
+          <li><b>게임 닉네임 등록</b> — <code>/닉등록 게임닉</code> (참여자 확인 때 디스코드와 맞추는 데 써요)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>설정</h2>
+        <p class="muted small">앱에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
+        <label><input type="checkbox" id="vb-on" ${s.virtual_bella ? "checked" : ""}> 이 서버에서 버추얼 벨라 켜기</label>
+        <h3 class="small" style="margin:14px 0 6px">길드원 권한 <span class="muted">(관리자는 항상 가능)</span></h3>
+        <div class="grid">
+          ${PERMS.map(([k, t, d]) => `<label><input type="checkbox" class="vb-perm" data-k="${k}" ${(s["vb_member_" + k] ?? d) ? "checked" : ""}> ${t}</label>`).join("")}
+        </div>
+        <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
+        <p><button class="primary" id="vb-save">저장</button></p>
+      </div>
+      <div class="card"><h2>데스노트 · 화이트리스트</h2><div id="vb-lists"></div></div>`;
+    $("#vb-save").onclick = async () => {
+      await q(sb.from("boss_settings").upsert({
+        guild_id: G(), virtual_bella: $("#vb-on").checked ? 1 : 0,
+        ...Object.fromEntries([...v.querySelectorAll(".vb-perm")].map((c) => ["vb_member_" + c.dataset.k, c.checked ? 1 : 0])),
+      }, { onConflict: "guild_id" }));
+      toast("버추얼 벨라 설정을 저장했어요");
     };
     vbLists($("#vb-lists"));
   }
@@ -806,6 +835,6 @@
     };
   }
 
-  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab };
+  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab, vbella: vbellaTab };
   start();
 })();
