@@ -225,7 +225,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -253,6 +253,12 @@
         <h2>✒️ 버추얼 벨라</h2>
         <p class="muted small">게임 화면 위에 띄우는 컷 앱(윈도우 · 안드로이드)에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
         <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
+        <h3 class="small" style="margin:14px 0 6px">길드원 권한 <span class="muted">(관리자는 항상 가능)</span></h3>
+        <div class="grid">
+          ${[["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1], ["download", "버추얼 벨라 받기 (웹)", 0]]
+            .map(([k, t, d]) => `<label><input type="checkbox" class="vb-perm" data-k="${k}" ${(s["vb_member_" + k] ?? d) ? "checked" : ""}> ${t}</label>`).join("")}
+        </div>
+        <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
         <p class="muted small">앱 로그인: 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱에 입력 · 끊기 <code>/벨라연결해제</code> · 화이트리스트 <code>/화이트</code> <code>/화이트목록</code> <code>/화이트삭제</code></p>
         <div id="vb-lists"></div>
       </div>
@@ -289,6 +295,7 @@
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         virtual_bella: $("#s-vb").checked ? 1 : 0,
+        ...Object.fromEntries([...v.querySelectorAll(".vb-perm")].map((c) => ["vb_member_" + c.dataset.k, c.checked ? 1 : 0])),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
         shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
         greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(","),
@@ -313,13 +320,20 @@
       </details>
       <details><summary>🤍 화이트리스트 (우리 쪽 부캐) ${w.length}개</summary>
         <p class="muted small">관리자만 보는 전체 목록이에요. 등록·삭제는 각자 앱에서 해요. 여기 있는 이름은 데스노트에 있어도 적대 알림이 안 떠요.</p>
-        ${w.length ? `<table class="tbl"><tr><th>부캐</th><th>주인</th><th>등록</th></tr>${w.map((x) => `<tr>
+        ${w.length ? `<table class="tbl"><tr><th>부캐</th><th>주인</th><th>등록</th><th></th></tr>${w.map((x) => `<tr>
           <td>${esc(x.name)}</td><td>${esc(x.display_name || x.user_id)}</td>
-          <td class="small">${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요.</p>`}
+          <td class="small">${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td>
+          <td><button class="danger small" data-wdel="${esc(x.name)}" data-uid="${esc(x.user_id)}">삭제</button></td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요.</p>`}
       </details>`;
     box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm(`데스노트에서 '${b.dataset.del}' 을(를) 지울까요?`)) return;
       const { error } = await sb.rpc("vb_note_staff_del", { gid: G(), nm: b.dataset.del });
+      if (error) return toast(error.message);
+      toast("지웠어요"); vbLists(box);
+    }));
+    box.querySelectorAll("[data-wdel]").forEach((b) => (b.onclick = async () => {
+      if (!confirm(`화이트리스트에서 '${b.dataset.wdel}' 을(를) 지울까요?`)) return;
+      const { error } = await sb.rpc("vb_white_staff_del", { gid: G(), uid: b.dataset.uid, nm: b.dataset.wdel });
       if (error) return toast(error.message);
       toast("지웠어요"); vbLists(box);
     }));
