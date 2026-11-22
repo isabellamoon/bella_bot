@@ -345,9 +345,11 @@
       const mode = v.querySelector("input[name=greet]:checked").value;
       const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
       const val = (id) => $(id).value || null;
+      const homeSrv = ($("#s-homesrv").value || "").replace(/[\[\]\s]/g, "") || null;
+      if (homeSrv && !/^[가-힣]{2}[0-9]$/.test(homeSrv)) { toast("서버 꼬리표는 포세1 · 아테3 처럼 한글 2자 + 숫자 1자리만 받아요"); return; }
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null,
-        home_srv: ($("#s-homesrv").value || "").replace(/[\[\]]/g, "").trim().slice(0, 20) || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
+        home_srv: homeSrv, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
