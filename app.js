@@ -543,9 +543,12 @@
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
     const counted = raids.filter((r) => r.kill_id || r.category === "battle");
+    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");   // 행사 참여 체크는 목록에만
+    const KIND = { battle: ["battle", "🛡️ 레기온", "레기온"], event: ["event", "📋 행사", "행사"] };
+    const kind = (r) => KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
     let members = [];
-    for (let i = 0; i < counted.length; i += 100) {
-      const ids = counted.slice(i, i + 100).map((r) => r.id);
+    for (let i = 0; i < shown.length; i += 100) {
+      const ids = shown.slice(i, i + 100).map((r) => r.id);
       members = members.concat(await q(sb.from("raid_members").select("raid_id::text,user_id::text,display_name,joined_at").in("raid_id", ids)));
     }
     const byRaid = {}, people = {};
@@ -565,18 +568,18 @@
         <div class="row"><h2 style="margin:0">출석 (레이드·레기온 참여)</h2>
           <input type="month" id="a-month" value="${month}">
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">이번 달 ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명</p>
+        <p class="muted">이번 달 ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 행사 참여 체크 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
         <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th></tr></thead><tbody>
           ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">기록 없음</td></tr>`}
         </tbody></table></div>
       </div>
       <div class="card">
-        <h2>레이드·레기온 기록</h2>
+        <h2>레이드·레기온·행사 기록</h2>
         <p class="muted small">이름 옆 ×로 명단에서 빼고, 아래 칸에서 이번 달 참여자 중 골라 넣을 수 있어요. 디스코드 메시지의 명단은 다음에 그 메시지가 갱신될 때 맞춰져요.</p>
-        ${counted.map((r) => {
+        ${shown.map((r) => {
           const ms = byRaid[r.id] || [];
           return `<details data-raid="${r.id}"><summary>
-              <span class="badge ${r.category === "battle" ? "battle" : "boss"}">${r.category === "battle" ? "🛡️ 레기온" : "⚔️ 보스"}</span>
+              <span class="badge ${kind(r)[0]}">${kind(r)[1]}</span>
               <b>${esc(label[r.boss] || r.boss)}</b> <span class="muted">${fmtDate(r.killed_at)} · ${ms.length}명</span></summary>
             <div class="members">${ms.map((m) => `<span class="member">${esc(m.display_name)}<button title="빼기" data-rm="${m.user_id}">×</button></span>`).join("")}</div>
             <div class="row" style="padding-left:22px"><select class="add-who"><option value="">+ 추가할 사람</option>
@@ -603,7 +606,7 @@
       a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = name; a.click();
     };
     $("#a-csv1").onclick = () => download(`출석명단_${month}.csv`, [["날짜", "종류", "보스·전투", "인원", "참여자"],
-      ...counted.map((r) => [fmtDate(r.killed_at), r.category === "battle" ? "레기온" : "보스레이드", label[r.boss] || r.boss,
+      ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
         (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", ")])]);
     $("#a-csv2").onclick = () => download(`출석순위_${month}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온"],
       ...rank.map((p, i) => [i + 1, p.name, p.total, p.boss, p.battle])]);

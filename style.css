@@ -170,3 +170,5 @@ summary { cursor: pointer; display: flex; gap: 8px; align-items: center; flex-wr
   .mx { grid-template-columns: 1fr; }
   .mx-palette { position: sticky; top: 0; z-index: 5; order: -1; }
 }
+
+.badge.event { color: #2dd4bf; }
