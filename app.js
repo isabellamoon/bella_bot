@@ -392,15 +392,24 @@
   // 버추얼 벨라 데스노트(서버 공용) · 화이트리스트 전체(관리자만 · 부캐 전력 노출 방지로 앱에서는 각자 자기 것만)
   async function vbLists(box) {
     if (!box) return;
+    const reqs = (await sb.rpc("vb_note_reqs_list", { gid: G() })).data || [];
+    const reqHtml = reqs.length ? `<div class="card-sub"><h3>🗑️ 데스노트 제외 신청 ${reqs.length}건</h3>
+      <table class="tbl"><tr><th>이름</th><th>신청</th><th>등록한 사람</th><th>이유</th><th></th></tr>${reqs.map((r) => `<tr>
+        <td><b>${esc(r.name)}</b></td><td>${esc(r.user_name || r.user_id)} · ${fmtDate(r.created_at)}</td>
+        <td>${esc(r.added_by_name || r.added_by || "")}</td><td class="small">${esc(r.reason || "")}</td>
+        <td><button class="primary small" data-ok="${r.id}">수락</button> <button class="ghost small" data-no="${r.id}">거절</button></td></tr>`).join("")}</table></div>` : "";
     const [notes, whites] = await Promise.all([sb.rpc("vb_note_all", { gid: G() }), sb.rpc("vb_white_all", { gid: G() })]);
     if (notes.error || whites.error) { box.innerHTML = `<p class="muted small">목록을 못 불러왔어요: ${esc((notes.error || whites.error).message)}</p>`; return; }
     const n = notes.data || [], w = whites.data || [];
-    box.innerHTML = `
+    box.innerHTML = reqHtml + `
       <details><summary>☠️ 데스노트 ${n.length}명</summary>
         ${n.length ? `<table class="tbl"><tr><th>이름</th><th>다른 표기</th><th>등록</th><th></th></tr>${n.map((x) => `<tr>
           <td>${esc(x.name)}</td><td class="small">${esc((x.aliases || []).join(", "))}</td>
           <td class="small">${esc(x.added_by_name || x.added_by || "")} · ${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td>
           <td><button class="danger small" data-del="${esc(x.name)}">삭제</button></td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요. 앱에서 <code>\\</code> 키로 등록해요.</p>`}
+      </details>
+      <details><summary>📜 데스노트 기록 (누가 언제 등록 · 삭제했는지)</summary>
+        <p><button class="ghost small" id="note-log-btn">최근 300건 불러오기</button></p><div id="note-log"></div>
       </details>
       <details><summary>🤍 화이트리스트 (우리 쪽 부캐) ${w.length}개</summary>
         <p class="muted small">관리자만 보는 전체 목록이에요. 등록·삭제는 각자 앱에서 해요. 여기 있는 이름은 데스노트에 있어도 적대 알림이 안 떠요.</p>
@@ -409,6 +418,21 @@
           <td class="small">${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td>
           <td><button class="danger small" data-wdel="${esc(x.name)}" data-uid="${esc(x.user_id)}">삭제</button></td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요.</p>`}
       </details>`;
+    const decide = (ok) => async (e) => {
+      const { error } = await sb.rpc("vb_note_req_decide", { gid: G(), rid: e.target.dataset[ok ? "ok" : "no"], ok });
+      if (error) return toast(error.message);
+      toast(ok ? "수락했어요 — 데스노트에서 뺐어요" : "거절했어요"); vbLists(box);
+    };
+    box.querySelectorAll("[data-ok]").forEach((b) => (b.onclick = decide(true)));
+    box.querySelectorAll("[data-no]").forEach((b) => (b.onclick = decide(false)));
+    const logBtn = box.querySelector("#note-log-btn");
+    if (logBtn) logBtn.onclick = async () => {
+      const rows = (await sb.rpc("vb_note_log_list", { gid: G() })).data || [];
+      const label = { add: "등록", alias: "다른 표기 추가", del: "삭제", req: "제외 신청", approve: "제외 수락", reject: "제외 거절" };
+      box.querySelector("#note-log").innerHTML = `<table class="tbl"><tr><th>시각</th><th>이름</th><th>무엇</th><th>누가</th><th>내용</th></tr>${rows.map((l) => `<tr>
+        <td class="small">${fmtDate(l.at)}</td><td>${esc(l.name)}</td><td>${label[l.action] || esc(l.action)}</td>
+        <td>${esc(l.user_name || l.user_id || "")}</td><td class="small">${esc(l.detail || "")}</td></tr>`).join("")}</table>`;
+    };
     box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm(`데스노트에서 '${b.dataset.del}' 을(를) 지울까요?`)) return;
       const { error } = await sb.rpc("vb_note_staff_del", { gid: G(), nm: b.dataset.del });
@@ -697,8 +721,8 @@
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
     const counted = raids.filter((r) => r.kill_id || r.category === "battle");
-    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");   // 행사 참여 체크는 목록에만
-    const KIND = { battle: ["battle", "🛡️ 레기온", "레기온"], event: ["event", "📋 행사", "행사"] };
+    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");   // 콘텐츠 참여는 목록에만
+    const KIND = { battle: ["battle", "🛡️ 레기온", "레기온"], event: ["event", "📋 콘텐츠", "콘텐츠"] };
     const kind = (r) => KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
     let members = [];
     for (let i = 0; i < shown.length; i += 100) {
@@ -724,13 +748,13 @@
             ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 행사 참여 체크 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 콘텐츠 참여 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
         <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th></tr></thead><tbody>
           ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">기록 없음</td></tr>`}
         </tbody></table></div>
       </div>
       <div class="card">
-        <h2>레이드·레기온·행사 기록</h2>
+        <h2>레이드·레기온·콘텐츠 기록</h2>
         <p class="muted small">이름 옆 ×로 명단에서 빼고, 아래 칸에서 이번 달 참여자 중 골라 넣을 수 있어요. 디스코드 메시지의 명단은 다음에 그 메시지가 갱신될 때 맞춰져요.</p>
         ${shown.map((r) => {
           const ms = byRaid[r.id] || [];
@@ -918,7 +942,7 @@
         <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
           ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
         <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}></div>
-      <p class="muted">${esc(label)} · <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 레기온 ${nb})${rows.length > counted.length ? ` · 📋 행사 ${rows.length - counted.length}회` : ""}</p>
+      <p class="muted">${esc(label)} · <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 레기온 ${nb})${rows.length > counted.length ? ` · 📋 콘텐츠 ${rows.length - counted.length}회` : ""}</p>
       <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
@@ -939,6 +963,10 @@
         <div id="vb-dl">${pm.download ? `<p class="muted small">받기 파일 확인 중…</p>`
           : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
       </div>
+      <div class="card"><h2>☠️ 내가 등록한 데스노트</h2>
+        <p class="muted small">잘못 등록한 이름은 [제외 신청]을 누르면 운영진이 확인하고 빼 줘요. 다른 사람이 넣은 이름은 운영진에게 말해 주세요.</p>
+        <div id="my-notes" class="board-list"><span class="muted small">불러오는 중…</span></div>
+      </div>
       <div class="card"><h2>🤍 내 화이트리스트 (우리 쪽 부캐)</h2>
         ${pm.white ? `<p class="muted small">여기 넣은 닉네임은 데스노트에 있어도 적대 알림이 안 떠요. 나만 보여요.</p>
           <div class="members">${whites.map((w) => `<span class="member">${esc(w.name)}<button title="빼기" data-wdel="${esc(w.name)}">×</button></span>`).join("") || `<span class="muted small">비어 있어요</span>`}</div>
@@ -946,6 +974,7 @@
           : `<p class="muted small">🔒 이 서버는 관리자만 화이트리스트를 등록할 수 있어요.</p>`}
       </div>`;
     if (pm.download) vbDownload($("#vb-dl"));
+    myNotes($("#my-notes"));
     const add = $("#w-add");
     if (add) add.onclick = async () => {
       const nm = $("#w-new").value.trim(); if (!nm) return;
@@ -964,6 +993,21 @@
       ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener"><button class="primary">⬇️ 버추얼 벨라 받기 (${esc(r.version)})</button></a></p>
          <p class="muted small">올린 날: ${fmtDate(r.uploaded_at)} · 받은 zip 을 풀어 설치 안내대로 해 주세요. 링크는 남에게 공유하지 마세요.</p>`
       : `<p class="muted small">아직 올라온 파일이 없어요. 관리자에게 받아 주세요.</p>`;
+  }
+
+  async function myNotes(box) {
+    if (!box) return;
+    const rows = await q(sb.rpc("web_my_notes", { gid: G() }));
+    box.innerHTML = rows.map((n) => `<div><b>${esc(n.name)}</b>
+        <span class="muted small">${esc((n.aliases || "").split("\n").filter(Boolean).join(", "))} · ${fmtDate(n.created_at)}</span>
+        ${n.pending ? `<span class="badge off">제외 신청 중</span>` : `<button class="ghost small" data-req="${esc(n.name)}">제외 신청</button>`}</div>`).join("")
+      || `<span class="muted small">내가 등록한 이름이 없어요.</span>`;
+    box.querySelectorAll("[data-req]").forEach((b) => (b.onclick = async () => {
+      const why = prompt(`'${b.dataset.req}' 제외 신청 — 이유를 적어 주세요 (예: 잘못 찍음, 우리 쪽 사람)`, "");
+      if (why === null) return;
+      await q(sb.rpc("web_note_request", { gid: G(), nm: b.dataset.req, reason: why }));
+      toast("제외 신청했어요. 운영진이 확인하면 빠져요"); myNotes(box);
+    }));
   }
 
   const MEMBER_TABS = { bosses: memberBoardTab, attendance: memberAttendanceTab, vbella: memberVbellaTab };
