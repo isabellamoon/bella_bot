@@ -94,9 +94,9 @@
 
   // ---------- 로그인 ----------
   async function start() {
-    $("#btn-login").onclick = () => sb.auth.signInWithOAuth({
+    $("#btn-login").onclick = () => (sessionStorageSafe("want_tab", location.hash.slice(1)), sb.auth.signInWithOAuth({
       provider: "discord", options: { redirectTo: location.origin + location.pathname },
-    });
+    }));
     const { data } = await sb.auth.getSession();
     sb.auth.onAuthStateChange((_e, session) => { if (!!session !== !!state.me) location.reload(); });
     if (!data.session) { $("#login").hidden = false; return; }
@@ -123,7 +123,8 @@
       document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
       state.tab = b.dataset.tab; render();
     };
-    const want = location.hash.slice(1);
+    // 바로가기(#vbella 등): 로그인하느라 주소 뒤가 지워졌으면 로그인 전에 기억해 둔 탭으로
+    const want = (/^#\w+$/.test(location.hash) ? location.hash.slice(1) : "") || sessionStorageSafe("want_tab", undefined, true);
     const tb = want && document.querySelector(`#tabs button[data-tab="${want}"]:not([hidden])`);
     if (tb && TABS[want]) {
       state.tab = want;
@@ -153,6 +154,15 @@
     try { await TABS[state.tab](v); } catch (e) { console.error(e); v.innerHTML = `<div class="card">불러오지 못했어요: ${esc(e.message)}</div>`; }
   }
   const G = () => state.gid;
+  // sessionStorage 를 못 쓰는 환경에서도 안 깨지게. take=true 면 읽고 지움
+  function sessionStorageSafe(key, value, take = false) {
+    try {
+      if (value !== undefined) { if (value) sessionStorage.setItem(key, value); return value; }
+      const v = sessionStorage.getItem(key);
+      if (take) sessionStorage.removeItem(key);
+      return v || "";
+    } catch (e) { return ""; }
+  }
 
   // ---------- 보스 ----------
   async function bossesTab(v) {
