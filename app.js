@@ -98,6 +98,11 @@
       provider: "discord", options: { redirectTo: location.origin + location.pathname },
     });
     const { data } = await sb.auth.getSession();
+    // 버추얼 벨라 연결 중에 로그인했는데 여기로 돌아왔으면 (Supabase 리디렉션 허용 주소 밖) 연결 페이지로
+    try {
+      const vb = JSON.parse(localStorage.getItem("vb.link.code") || "null");
+      if (data.session && vb && Date.now() - vb.at < 5 * 60 * 1000) { location.replace("vb-login.html"); return; }
+    } catch (e) {}
     sb.auth.onAuthStateChange((_e, session) => { if (!!session !== !!state.me) location.reload(); });
     if (!data.session) { $("#login").hidden = false; return; }
     const u = data.session.user.user_metadata || {};
@@ -253,6 +258,8 @@
         <h2>✒️ 버추얼 벨라</h2>
         <p class="muted small">게임 화면 위에 띄우는 컷 앱(윈도우 · 안드로이드)에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
         <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
+        <p class="muted small">앱 연결: 앱의 [디스코드로 로그인] 또는 디스코드에서 <code>/벨라연결 코드</code> · 끊기 <code>/벨라연결해제</code></p>
+        <div id="vb-lists"></div>
       </div>
       <div class="card">
         <h2>채널</h2>
@@ -293,6 +300,34 @@
       }, { onConflict: "guild_id" }));
       toast("설정을 저장했어요");
     };
+    vbLists($("#vb-lists"));
+  }
+
+  // 버추얼 벨라 데스노트(서버 공용) · 화이트리스트 전체(관리자만 · 부캐 전력 노출 방지로 앱에서는 각자 자기 것만)
+  async function vbLists(box) {
+    if (!box) return;
+    const [notes, whites] = await Promise.all([sb.rpc("vb_note_all", { gid: G() }), sb.rpc("vb_white_all", { gid: G() })]);
+    if (notes.error || whites.error) { box.innerHTML = `<p class="muted small">목록을 못 불러왔어요: ${esc((notes.error || whites.error).message)}</p>`; return; }
+    const n = notes.data || [], w = whites.data || [];
+    box.innerHTML = `
+      <details><summary>☠️ 데스노트 ${n.length}명</summary>
+        ${n.length ? `<table class="tbl"><tr><th>이름</th><th>다른 표기</th><th>등록</th><th></th></tr>${n.map((x) => `<tr>
+          <td>${esc(x.name)}</td><td class="small">${esc((x.aliases || []).join(", "))}</td>
+          <td class="small">${esc(x.added_by_name || x.added_by || "")} · ${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td>
+          <td><button class="danger small" data-del="${esc(x.name)}">삭제</button></td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요. 앱에서 <code>\\</code> 키로 등록해요.</p>`}
+      </details>
+      <details><summary>🤍 화이트리스트 (우리 쪽 부캐) ${w.length}개</summary>
+        <p class="muted small">관리자만 보는 전체 목록이에요. 등록·삭제는 각자 앱에서 해요. 여기 있는 이름은 데스노트에 있어도 적대 알림이 안 떠요.</p>
+        ${w.length ? `<table class="tbl"><tr><th>부캐</th><th>주인</th><th>등록</th></tr>${w.map((x) => `<tr>
+          <td>${esc(x.name)}</td><td>${esc(x.display_name || x.user_id)}</td>
+          <td class="small">${esc((x.created_at || "").slice(5, 16).replace("T", " "))}</td></tr>`).join("")}</table>` : `<p class="muted small">비어 있어요.</p>`}
+      </details>`;
+    box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+      if (!confirm(`데스노트에서 '${b.dataset.del}' 을(를) 지울까요?`)) return;
+      const { error } = await sb.rpc("vb_note_staff_del", { gid: G(), nm: b.dataset.del });
+      if (error) return toast(error.message);
+      toast("지웠어요"); vbLists(box);
+    }));
   }
 
   // ---------- 알림 멘션 ----------

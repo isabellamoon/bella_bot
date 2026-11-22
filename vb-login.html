@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>버추얼 벨라 연결 · 벨라꼬붕</title>
+  <link rel="icon" href="assets/avatar.png">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .vb-guilds { display: grid; gap: 10px; margin-top: 16px; }
+    .vb-guilds button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; }
+    .vb-guilds img { width: 36px; height: 36px; border-radius: 50%; }
+    .vb-code { font-size: 1.6em; letter-spacing: .3em; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <img class="avatar" src="assets/avatar.png" alt="">
+      <div><h1>버추얼 벨라 연결</h1><p class="sub">디스코드로 로그인해서 앱과 서버를 연결해요</p></div>
+    </div>
+  </header>
+  <main>
+    <section class="card center">
+      <p class="muted">앱 연결 코드</p>
+      <p class="vb-code" id="code">——————</p>
+      <h2 id="title">확인하는 중…</h2>
+      <p class="muted" id="msg"></p>
+      <p id="login" hidden><button class="primary" id="btn-login">디스코드로 로그인</button></p>
+      <div class="vb-guilds" id="guilds"></div>
+    </section>
+  </main>
+  <footer class="ground" aria-hidden="true"></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script>
+  // 버추얼 벨라 앱이 여는 페이지: vb-login.html?code=123456
+  // 디스코드 로그인 → 서버 고르기 → 이 코드를 내 계정 · 그 서버로 연결 요청 (vb_link_web).
+  // 그 서버 멤버인지 확인하고 토큰을 주는 건 봇. 앱은 자기 열쇠로 결과를 받아 감 (이 페이지는 토큰을 못 봄).
+  (async () => {
+    const cfg = window.BOT_CONFIG;
+    const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    const $ = (id) => document.getElementById(id);
+    const KEY = "vb.link.code";
+    const fromUrl = (new URLSearchParams(location.search).get("code") || "").replace(/\D/g, "");
+    if (fromUrl.length === 6) {
+      try { localStorage.setItem(KEY, JSON.stringify({ code: fromUrl, at: Date.now() })); } catch (e) {}
+      history.replaceState(null, "", location.pathname);
+    }
+    let code = fromUrl;
+    if (code.length !== 6) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+        if (saved && Date.now() - saved.at < 5 * 60 * 1000) code = saved.code;
+      } catch (e) {}
+    }
+    const say = (t, m) => { $("title").textContent = t; $("msg").textContent = m || ""; };
+    if (code.length !== 6) return say("연결 코드가 없어요", "버추얼 벨라 앱에서 [디스코드로 로그인]을 다시 눌러 주세요.");
+    $("code").textContent = code;
+
+    const { data } = await sb.auth.getSession();
+    if (!data.session) {
+      say("디스코드로 로그인해 주세요", "로그인한 계정이 앱에 연결돼요.");
+      $("login").hidden = false;
+      $("btn-login").onclick = () => sb.auth.signInWithOAuth({
+        provider: "discord", options: { redirectTo: location.origin + location.pathname },
+      });
+      return;
+    }
+    const { data: guilds, error } = await sb.rpc("vb_guilds");
+    if (error) return say("서버 목록을 못 불러왔어요", error.message);
+    if (!guilds || !guilds.length) return say("연결할 서버가 없어요", "서버 관리판 [✒️ 버추얼 벨라]에서 먼저 켜 주세요.");
+    say("어느 서버로 연결할까요?", "한 번 연결하면 그 서버로만 쓸 수 있어요. (바꾸려면 다시 연결)");
+    const box = $("guilds");
+    for (const g of guilds) {
+      const b = document.createElement("button");
+      if (g.icon_url) { const i = document.createElement("img"); i.src = g.icon_url; i.alt = ""; b.appendChild(i); }
+      b.appendChild(document.createTextNode(g.name));
+      b.onclick = async () => {
+        box.querySelectorAll("button").forEach((x) => (x.disabled = true));
+        const { data: ok, error: e } = await sb.rpc("vb_link_web", { c: code, gid: g.guild_id });
+        if (e) { box.querySelectorAll("button").forEach((x) => (x.disabled = false)); return say("연결 요청 실패", e.message); }
+        if (!ok) return say("이미 쓴 코드거나 시간이 지났어요", "앱에서 새 코드를 받아 다시 해 주세요.");
+        try { localStorage.removeItem(KEY); } catch (x) {}
+        box.innerHTML = "";
+        say("✒️ 연결 요청했어요", `${g.name} — 봇이 멤버인지 확인하면 앱에 바로 연결돼요. 이 창은 닫아도 돼요.`);
+      };
+      box.appendChild(b);
+    }
+  })();
+  </script>
+</body>
+</html>
