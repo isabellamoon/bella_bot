@@ -119,7 +119,7 @@
     // 관리자 서버(staff) + 길드원 서버(member). 지금 봇이 들어가 있는 서버만
     state.guilds = await q(sb.rpc("web_my_guilds"));
     for (const g of state.guilds) Object.assign(g, state.allGuilds.find((x) => x.guild_id === g.guild_id) || {});
-    if (!state.guilds.length) { $("#noguild").hidden = false; return; }
+    if (!state.guilds.length) { $("#noguild").hidden = false; setTimeout(() => location.reload(), 3000); return; }
     const ownerRows = await q(sb.from("web_owners").select("user_id::text"));
     state.botOwner = ownerRows.length > 0;
     $("#tab-servers").hidden = !state.botOwner;
@@ -964,7 +964,7 @@
           : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
       </div>
       <div class="card"><h2>☠️ 내가 등록한 데스노트</h2>
-        <p class="muted small">잘못 등록한 이름은 [제외 신청]을 누르면 운영진이 확인하고 빼 줘요. 다른 사람이 넣은 이름은 운영진에게 말해 주세요.</p>
+        <p class="muted small">잘못 등록한 이름은 [제외 신청]을 누르면 운영진이 확인하고 빼 줘요.</p>
         <div id="my-notes" class="board-list"><span class="muted small">불러오는 중…</span></div>
       </div>
       <div class="card"><h2>🤍 내 화이트리스트 (우리 쪽 부캐)</h2>
