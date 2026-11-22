@@ -225,7 +225,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -242,9 +242,19 @@
         <select id="s-game"><option value="">— 미설정 —</option>${GAMES.map(([c, n]) => `<option value="${c}" ${s.game === c ? "selected" : ""}>${n}</option>`).join("")}</select>
       </div>
       <div class="card">
+        <h2>출석 규칙</h2>
+        <p class="muted small">요일·시각 보스(케르베로스 · 메데이아 등 정해진 시각에 나오는 보스)를 어떻게 출석으로 칠지 정해요. 리젠 보스는 두 규칙 모두 컷이 들어오면 레이드 등록이 열려요.</p>
+        <label><input type="radio" name="rule" value="bella" ${(s.raid_rule || "bella") === "bella" ? "checked" : ""}> <b>벨라 룰</b> (기본) — 출현 n분 전에 레이드 등록이 자동으로 열리고, 출현 m분 뒤 닫혀요. 요일·시각 보스는 컷을 받지 않아요.</label><br>
+        <label><input type="radio" name="rule" value="cut" ${s.raid_rule === "cut" ? "checked" : ""}> <b>컷 룰</b> — 요일·시각 보스도 컷이 들어와야 레이드 등록이 열려요 (컷 후 아래 '참여 받는 시간' 동안).</label>
+        <div class="grid" style="margin-top:8px">
+          <label class="field">벨라 룰: 출현 몇 분 전에 열기<input id="s-bopen" type="number" min="1" max="120" value="${s.bella_open ?? 10}"></label>
+          <label class="field">벨라 룰: 출현 몇 분 뒤 닫기<input id="s-bclose" type="number" min="1" max="120" value="${s.bella_close ?? 5}"></label>
+        </div>
+      </div>
+      <div class="card">
         <h2>알림 · 참여</h2>
         <div class="grid">
-          <label class="field">레이드 등록 알림을 출현 몇 분 전에 (0 = 안 함 · 등록은 컷 후)<input id="s-lead" type="number" min="0" max="120" value="${s.recruit_lead ?? 5}"></label>
+          <label class="field">레이드 등록 알림을 출현 몇 분 전에 (0 = 안 함 · 리젠 보스, 컷 룰의 요일·시각 보스)<input id="s-lead" type="number" min="0" max="120" value="${s.recruit_lead ?? 5}"></label>
           <label class="field">출현 알림 (분 전, 쉼표)<input id="s-alerts" value="${esc(s.alert_offsets ?? "5,1")}"></label>
           <label class="field">컷 후 참여 받는 시간 (분)<input id="s-raid" type="number" min="1" max="120" value="${s.raid_minutes ?? 5}"></label>
         </div>
@@ -295,6 +305,8 @@
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         virtual_bella: $("#s-vb").checked ? 1 : 0,
+        raid_rule: v.querySelector("input[name=rule]:checked").value,
+        bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
         ...Object.fromEntries([...v.querySelectorAll(".vb-perm")].map((c) => ["vb_member_" + c.dataset.k, c.checked ? 1 : 0])),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
         shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
