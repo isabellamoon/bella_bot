@@ -268,7 +268,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -283,6 +283,11 @@
         <h2>🎮 게임</h2>
         <p class="muted small">제우스 전용 기능(일요일 길드전 · 기본 보스 목록 · 현황판 인식)은 제우스 서버에서만 켜져요. 준비 중인 게임은 지원되면 자동으로 켜져요.</p>
         <select id="s-game"><option value="">— 미설정 —</option>${GAMES.map(([c, n]) => `<option value="${c}" ${s.game === c ? "selected" : ""}>${n}</option>`).join("")}</select>
+      </div>
+      <div class="card">
+        <h2>🌐 서버 이전 등록</h2>
+        <p class="muted small">우리 길드의 게임 서버(꼬리표)를 적어 주세요. 버추얼 벨라 앱이 '우리 서버'로 써요.</p>
+        <label class="field">게임 서버 (예: 포세1)<input id="s-homesrv" maxlength="20" placeholder="포세1" value="${esc(s.home_srv || "")}"></label>
       </div>
       <div class="card">
         <h2>출석 규칙</h2>
@@ -341,7 +346,8 @@
       const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
       const val = (id) => $(id).value || null;
       await q(sb.from("boss_settings").upsert({
-        guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
+        guild_id: G(), game: $("#s-game").value || null,
+        home_srv: ($("#s-homesrv").value || "").replace(/[\[\]]/g, "").trim().slice(0, 20) || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
