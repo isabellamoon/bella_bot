@@ -225,7 +225,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -255,7 +255,7 @@
         <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
         <h3 class="small" style="margin:14px 0 6px">길드원 권한 <span class="muted">(관리자는 항상 가능)</span></h3>
         <div class="grid">
-          ${[["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1], ["download", "버추얼 벨라 받기 (웹)", 0]]
+          ${[["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1], ["download", "버추얼 벨라 받기 (웹)", 0], ["rally", "뿔피리 (앱 전체에 용사집결)", 0]]
             .map(([k, t, d]) => `<label><input type="checkbox" class="vb-perm" data-k="${k}" ${(s["vb_member_" + k] ?? d) ? "checked" : ""}> ${t}</label>`).join("")}
         </div>
         <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
