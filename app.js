@@ -225,7 +225,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -249,6 +249,14 @@
         <div class="grid" style="margin-top:8px">
           <label class="field">벨라 룰: 출현 몇 분 전에 열기<input id="s-bopen" type="number" min="1" max="120" value="${s.bella_open ?? 10}"></label>
           <label class="field">벨라 룰: 출현 몇 분 뒤 닫기<input id="s-bclose" type="number" min="1" max="120" value="${s.bella_close ?? 5}"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📍 출석 구간 (체크포인트)</h2>
+        <p class="muted small">기록은 지우지 않고 출석 순위를 구간으로 나눠 봐요. 시작일부터 N일마다(그날 0시) 자동으로 나뉘고, 디스코드 관리판 [📍 체크포인트]로 지금 시각을 수동으로 더 찍을 수 있어요. 시작일을 비우면 자동 주기는 꺼져요.</p>
+        <div class="grid">
+          <label class="field">자동 주기 시작일<input id="s-cpstart" type="date" value="${esc(s.cp_start || "")}"></label>
+          <label class="field">며칠마다<input id="s-cpdays" type="number" min="1" max="366" value="${s.cp_days || 14}"></label>
         </div>
       </div>
       <div class="card">
@@ -306,6 +314,7 @@
         guild_id: G(), game: $("#s-game").value || null, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         virtual_bella: $("#s-vb").checked ? 1 : 0,
         raid_rule: v.querySelector("input[name=rule]:checked").value,
+        cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
         ...Object.fromEntries([...v.querySelectorAll(".vb-perm")].map((c) => ["vb_member_" + c.dataset.k, c.checked ? 1 : 0])),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
@@ -557,12 +566,46 @@
   }
 
   // ---------- 출석 ----------
+  // 출석 구간 (체크포인트): 자동 주기(시작일 + N일마다 0시) ∪ 수동 체크포인트. 봇의 checkpoints.py 와 같은 계산
+  async function segmentsOf(gid) {
+    const [st, cps] = await Promise.all([
+      q(sb.from("boss_settings").select("cp_start,cp_days").eq("guild_id", gid)),
+      q(sb.from("checkpoints").select("at,name").eq("guild_id", gid)),
+    ]);
+    const nowMs = Date.now(), b = new Map();
+    const s0 = st[0] || {};
+    if (s0.cp_start && s0.cp_days > 0) {
+      let t = Date.parse(`${s0.cp_start}T00:00:00+09:00`);
+      while (t <= nowMs + (s0.cp_days + 1) * 864e5) { b.set(t, ""); t += s0.cp_days * 864e5; }
+    }
+    for (const c of cps) b.set(Date.parse(c.at), c.name || "");
+    const ts = [...b.keys()].sort((a, c) => a - c);
+    const md = (ms) => { const p = kstParts(new Date(ms).toISOString()); return `${pad(p.mo)}/${pad(p.d)}`; };
+    const out = [];
+    ts.forEach((t, i) => {
+      if (t > nowMs) return;
+      const e = ts[i + 1];
+      const name = b.get(t);
+      out.push({ start: kstIso(new Date(t)), end: e ? kstIso(new Date(e)) : null,
+                 label: `${name ? name + " · " : ""}${md(t)}~${e ? md(e - 6e4) : "지금"}` });
+    });
+    return out.reverse();
+  }
+
   async function attendanceTab(v) {
     const now = kstParts(new Date().toISOString());
+    const segs = await segmentsOf(G());
+    // 기본: 지금 구간 (체크포인트가 없으면 이번 달)
+    if (state.period === undefined) state.period = segs.length ? "seg:0" : "month";
     const month = state.month || `${now.y}-${pad(now.mo)}`;
     const [y, mo] = month.split("-").map(Number);
-    const start = `${y}-${pad(mo)}-01T00:00:00+09:00`;
-    const end = mo === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(mo + 1)}-01T00:00:00+09:00`;
+    let start = `${y}-${pad(mo)}-01T00:00:00+09:00`;
+    let end = mo === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(mo + 1)}-01T00:00:00+09:00`;
+    let periodLabel = `${y}년 ${mo}월`;
+    if (state.period.startsWith("seg:") && segs[+state.period.slice(4)]) {
+      const sg = segs[+state.period.slice(4)];
+      start = sg.start; end = sg.end || "2999-01-01T00:00:00+09:00"; periodLabel = sg.label;
+    }
     const [raids, bosses] = await Promise.all([
       q(sb.from("raids").select("id::text,boss,killed_at,category,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
       q(sb.from("bosses").select("name,display").eq("guild_id", G())),
@@ -592,9 +635,11 @@
     v.innerHTML = `
       <div class="card">
         <div class="row"><h2 style="margin:0">출석 (레이드·레기온 참여)</h2>
-          <input type="month" id="a-month" value="${month}">
+          <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
+            ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
+          <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">이번 달 ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 행사 참여 체크 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 행사 참여 체크 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
         <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th></tr></thead><tbody>
           ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">기록 없음</td></tr>`}
         </tbody></table></div>
@@ -614,6 +659,7 @@
         }).join("") || `<p class="muted">기록 없음</p>`}
       </div>`;
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
+    $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
     v.querySelectorAll("details[data-raid]").forEach((d) => {
       const rid = d.dataset.raid;
       d.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => {
@@ -631,10 +677,10 @@
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = name; a.click();
     };
-    $("#a-csv1").onclick = () => download(`출석명단_${month}.csv`, [["날짜", "종류", "보스·전투", "인원", "참여자"],
+    $("#a-csv1").onclick = () => download(`출석명단_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["날짜", "종류", "보스·전투", "인원", "참여자"],
       ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
         (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", ")])]);
-    $("#a-csv2").onclick = () => download(`출석순위_${month}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온"],
+    $("#a-csv2").onclick = () => download(`출석순위_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온"],
       ...rank.map((p, i) => [i + 1, p.name, p.total, p.boss, p.battle])]);
   }
 
