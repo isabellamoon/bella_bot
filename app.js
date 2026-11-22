@@ -471,32 +471,51 @@
   async function sheetCard() {
     const card = $("#g-card"); if (!card) return;
     const gid = G();
-    const rows = await q(sb.from("google_links").select("sheet_url,synced_at,error").eq("guild_id", gid));
+    const [rows, bks] = await Promise.all([
+      q(sb.from("google_links").select("sheet_url,synced_at,error").eq("guild_id", gid)),
+      q(sb.rpc("google_backup_info", { gid })),
+    ]);
     if (G() !== gid || !$("#g-card")) return;
-    const l = rows[0];
+    const l = rows[0], bk = bks[0];
+    const backup = `<h3 style="margin-top:16px">💾 백업 드라이브 ${bk ? `<span class="badge ${bk.error ? "off" : "boss"}">${bk.error ? "확인 필요" : "연결됨"}</span>` : ""}</h3>
+      <p class="muted small">게시판 청소 때 첨부 파일(스샷 등)을 보관할 구글 계정이에요. 따로 연결 안 하면 구글 시트 계정 드라이브에 보관해요.</p>
+      ${bk ? `${bk.error ? `<p style="color:var(--bad)">⚠️ ${esc(bk.error)}</p>` : ""}<div class="row">${bk.folder_url ? `<a href="${esc(bk.folder_url)}" target="_blank" rel="noopener"><button>백업 폴더 열기</button></a>` : ""}
+        <button id="b-relink">다시 연결</button><button class="danger ghost" id="b-unlink">연결 끊기</button></div>`
+        : `<button id="b-link">백업 드라이브 연결</button>`}`;
+    const wireBackup = () => {
+      const c = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+      c("#b-link", () => connectGoogle("backup")); c("#b-relink", () => connectGoogle("backup"));
+      c("#b-unlink", async () => {
+        if (!confirm("백업 드라이브 연결을 끊을까요? 이미 보관한 파일은 드라이브에 그대로 남아요.")) return;
+        await q(sb.rpc("google_unlink_backup", { gid: G() }));
+        toast("백업 드라이브 연결을 끊었어요"); sheetCard();
+      });
+    };
     const howto = `<p class="muted small">구글 계정으로 허용하면 그 계정 드라이브에 <b>'벨라꼬붕 출석 기록'</b> 시트를 만들고, 10분마다 월간 순위 · 참여 상세 · 보스 컷 기록을 채워요.
       봇은 자기가 만든 시트만 다룰 수 있어요. 기존 시트에서 쓰려면 <code>=IMPORTRANGE("시트 주소", "월간 순위!A1:G300")</code> 로 끌어가세요.</p>`;
     if (!l) {
-      card.innerHTML = `<h2>📊 구글 시트</h2>${howto}<button class="primary" id="g-link">구글 시트 연결</button>`;
-      $("#g-link").onclick = connectGoogle;
+      card.innerHTML = `<h2>📊 구글 시트</h2>${howto}<button class="primary" id="g-link">구글 시트 연결</button>${backup}`;
+      $("#g-link").onclick = () => connectGoogle("sheet");
+      wireBackup();
       return;
     }
     const when = l.synced_at ? fmtDate(l.synced_at) : "아직";
     card.innerHTML = `<h2>📊 구글 시트 <span class="badge ${l.error ? "off" : "boss"}">${l.error ? "확인 필요" : "연결됨"}</span></h2>
       ${l.error ? `<p style="color:var(--bad)">⚠️ ${esc(l.error)}</p>` : `<p class="muted small">마지막 갱신: ${when} · 10분마다 갱신돼요</p>`}
       <div class="row"><a href="${esc(l.sheet_url)}" target="_blank" rel="noopener"><button class="primary">시트 열기</button></a>
-      <button id="g-relink">다시 연결</button><button class="danger ghost" id="g-unlink">연결 끊기</button></div>`;
-    $("#g-relink").onclick = connectGoogle;
+      <button id="g-relink">다시 연결</button><button class="danger ghost" id="g-unlink">연결 끊기</button></div>${backup}`;
+    $("#g-relink").onclick = () => connectGoogle("sheet");
+    wireBackup();
     $("#g-unlink").onclick = async () => {
       if (!confirm("구글 시트 연결을 끊을까요? 시트 파일은 드라이브에 그대로 남아요.")) return;
       await q(sb.rpc("google_unlink", { gid: G() }));
       toast("연결을 끊었어요"); sheetCard();
     };
   }
-  async function connectGoogle() {
+  async function connectGoogle(purpose = "sheet") {
     const popup = window.open("about:blank", "google-link", "width=520,height=680");
     let st;
-    try { st = await q(sb.rpc("google_begin", { gid: G() })); }
+    try { st = await q(sb.rpc("google_begin", { gid: G(), purpose })); }
     catch (e) { popup && popup.close(); return; }
     const url = GOOGLE_AUTH + "?" + new URLSearchParams({
       client_id: cfg.GOOGLE_CLIENT_ID, redirect_uri: googleRedirect(), response_type: "code",
@@ -506,7 +525,7 @@
     toast("구글 창에서 허용해 주세요");
   }
   window.addEventListener("message", (e) => {
-    if (e.origin === location.origin && e.data === "google-linked") { toast("구글 시트를 연결했어요"); sheetCard(); }
+    if (e.origin === location.origin && e.data === "google-linked") { toast("구글 계정을 연결했어요"); sheetCard(); }
   });
 
   // ---------- 레기온 ----------

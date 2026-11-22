@@ -18,8 +18,8 @@
   <main>
     <section class="card center">
       <h2 id="title">연결하는 중…</h2>
-      <p class="muted" id="msg">잠시만 기다려 주세요. 봇이 시트를 만들고 있어요.</p>
-      <p id="link" hidden><a id="open" target="_blank" rel="noopener"><button class="primary">시트 열기</button></a></p>
+      <p class="muted" id="msg">잠시만 기다려 주세요. 봇이 연결을 마무리하고 있어요.</p>
+      <p id="link" hidden><a id="open" target="_blank" rel="noopener"><button class="primary" id="open-label">열기</button></a></p>
     </section>
   </main>
   <footer class="ground" aria-hidden="true"></footer>
@@ -47,7 +47,10 @@
       if (!s) continue;
       if (s.status === "done") {
         title.textContent = "✅ 연결됐어요";
-        msg.textContent = "드라이브에 '벨라꼬붕 출석 기록' 시트를 만들었어요. 10분마다 갱신돼요. 이 창은 닫으셔도 돼요.";
+        const bk = s.purpose === "backup";
+        msg.textContent = bk ? "드라이브에 '벨라꼬붕 백업' 폴더를 만들었어요. 게시판 청소 때 첨부 파일이 여기에 보관돼요. 이 창은 닫으셔도 돼요."
+                             : "드라이브에 '벨라꼬붕 출석 기록' 시트를 만들었어요. 10분마다 갱신돼요. 이 창은 닫으셔도 돼요.";
+        document.getElementById("open-label").textContent = bk ? "백업 폴더 열기" : "시트 열기";
         document.getElementById("open").href = s.result;
         document.getElementById("link").hidden = false;
         if (window.opener) { try { window.opener.postMessage("google-linked", location.origin); } catch (e) {} }
