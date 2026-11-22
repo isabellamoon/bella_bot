@@ -98,11 +98,6 @@
       provider: "discord", options: { redirectTo: location.origin + location.pathname },
     });
     const { data } = await sb.auth.getSession();
-    // 버추얼 벨라 연결 중에 로그인했는데 여기로 돌아왔으면 (Supabase 리디렉션 허용 주소 밖) 연결 페이지로
-    try {
-      const vb = JSON.parse(localStorage.getItem("vb.link.code") || "null");
-      if (data.session && vb && Date.now() - vb.at < 5 * 60 * 1000) { location.replace("vb-login.html"); return; }
-    } catch (e) {}
     sb.auth.onAuthStateChange((_e, session) => { if (!!session !== !!state.me) location.reload(); });
     if (!data.session) { $("#login").hidden = false; return; }
     const u = data.session.user.user_metadata || {};
@@ -258,7 +253,7 @@
         <h2>✒️ 버추얼 벨라</h2>
         <p class="muted small">게임 화면 위에 띄우는 컷 앱(윈도우 · 안드로이드)에서 오는 컷을 받아요. 리젠 보스만 받고, 요일·시각 보스는 컷을 받지 않아요.</p>
         <label><input type="checkbox" id="s-vb" ${s.virtual_bella ? "checked" : ""}> 앱에서 오는 컷 받기</label>
-        <p class="muted small">앱 연결: 앱의 [디스코드로 로그인] 또는 디스코드에서 <code>/벨라연결 코드</code> · 끊기 <code>/벨라연결해제</code></p>
+        <p class="muted small">앱 로그인: 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱에 입력 · 끊기 <code>/벨라연결해제</code> · 화이트리스트 <code>/화이트</code> <code>/화이트목록</code> <code>/화이트삭제</code></p>
         <div id="vb-lists"></div>
       </div>
       <div class="card">
