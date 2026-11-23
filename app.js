@@ -193,7 +193,7 @@
 
   // ---------- 보스 ----------
   async function bossesTab(v) {
-    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first").eq("guild_id", G()).order("respawn_min").order("name"));
+    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first,kind,alert_offsets").eq("guild_id", G()).order("respawn_min").order("name"));
     const now = kstIso(new Date());
     v.innerHTML = `
       <div class="card">
@@ -201,13 +201,15 @@
         <p class="muted small">리젠: <code>8시간</code> <code>1시간 30분</code> <code>미정</code> · 요일·시각 보스: <code>화 21시</code> <code>매일 0시, 12시, 18시</code>.
           표시 이름은 메시지에 보일 이름, 별명은 <code>/컷</code>·음성·스크린샷 인식용(쉼표로 구분).</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>보스</th><th>표시 이름</th><th>리젠 / 일정</th><th>별명</th><th>상태</th><th></th></tr></thead>
+          <thead><tr><th>보스</th><th>구분</th><th>표시 이름</th><th>리젠 / 일정</th><th title="비우면 구분 값 (설정의 인터 · 본토)">알림 (분 전)</th><th>별명</th><th>상태</th><th></th></tr></thead>
           <tbody>${rows.map((b) => {
             const waiting = !!b.wait_first, hidden = !waiting && b.hidden_until && b.hidden_until > now;
             return `<tr data-name="${esc(b.name)}" class="${hidden || waiting ? "hidden-boss" : ""}">
               <td><b>${esc(b.name)}</b></td>
+              <td><select name="kind" class="kind-sel"><option value="main" ${b.kind === "inter" ? "" : "selected"}>본토</option><option value="inter" ${b.kind === "inter" ? "selected" : ""}>인터</option></select></td>
               <td><input name="display" value="${esc(b.display || "")}" placeholder="${esc(b.name)}"></td>
               <td><input name="rule" value="${esc(fmtRule(b))}"></td>
+              <td><input name="offs" class="offs" value="${esc(b.alert_offsets == null ? "" : b.alert_offsets === "" ? "없음" : b.alert_offsets.split(",").join(", "))}" placeholder="구분 값"></td>
               <td><input name="aliases" value="${esc((b.aliases || "").split(",").filter(Boolean).join(", "))}"></td>
               <td>${waiting ? `<span class="badge off" title="첫 컷이 들어오면 자동으로 켜져요">첫 컷 대기</span>` : hidden ? `<span class="badge off">제외 ~${fmtDate(b.hidden_until)}</span>` : `<span class="badge">활성</span>`}</td>
               <td class="row">
@@ -236,8 +238,11 @@
       if (btn.dataset.act === "save") {
         const rule = parseRule(tr.querySelector("[name=rule]").value);
         if (!rule) return toast("리젠/일정을 못 알아들었어요. 예: 8시간 · 미정 · 화 21시", true);
+        const ot = tr.querySelector("[name=offs]").value.trim();
+        const offsets = !ot ? null : /^(없음|끄기|0)$/.test(ot) ? "" : parseMins(ot).join(",");
+        if (ot && offsets === "" && !/^(없음|끄기|0)$/.test(ot)) return toast("알림 시간을 못 알아들었어요. 예: 20, 10 (분 전)", true);
         await q(where(sb.from("bosses").update({
-          ...rule, display: tr.querySelector("[name=display]").value.trim() || null,
+          ...rule, kind: tr.querySelector("[name=kind]").value, alert_offsets: offsets, display: tr.querySelector("[name=display]").value.trim() || null,
           aliases: aliasList(tr.querySelector("[name=aliases]").value),
         })));
         toast(`${name} 저장했어요`);
@@ -256,6 +261,12 @@
         toast(`${name} 삭제했어요`); render();
       }
     };
+    v.querySelector("tbody").onchange = async (e) => {   // 구분은 고르는 즉시 저장
+      const sel = e.target.closest("select.kind-sel"); if (!sel) return;
+      const name = sel.closest("tr").dataset.name;
+      await q(sb.from("bosses").update({ kind: sel.value }).eq("guild_id", G()).eq("name", name));
+      toast(`${name} → ${sel.value === "inter" ? "인터" : "본토"}`);
+    };
     $("#nb-add").onclick = async () => {
       const name = $("#nb-name").value.trim();
       const rule = parseRule($("#nb-rule").value);
@@ -265,10 +276,33 @@
     };
   }
 
+  // ---------- 알림 시간 칩 (분 전 목록 편집) ----------
+  const fmtMin = (m) => (m % 60 === 0 ? `${m / 60}시간 전` : `${m}분 전`);
+  const parseMins = (t) => [...new Set((String(t || "").match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n <= 1440))].sort((a, b) => b - a);
+  function chipEdit(id, csv) {
+    return `<div class="chip-edit" id="${id}" data-v="${esc(csv)}"><span class="chip-list"></span>
+      <span class="chip-add"><input type="number" min="1" max="1440" inputmode="numeric" placeholder="분" aria-label="몇 분 전"><button type="button">＋ 추가</button></span></div>`;
+  }
+  function chipInit(el) {
+    el._list = parseMins(el.dataset.v);
+    const draw = () => {
+      el.querySelector(".chip-list").innerHTML = el._list.map((m) => `<span class="chip-x">${fmtMin(m)}<button type="button" data-m="${m}" aria-label="${fmtMin(m)} 삭제">×</button></span>`).join("") || `<span class="muted small">없음</span>`;
+    };
+    el.onclick = (e) => {
+      const b = e.target.closest("button[data-m]");
+      if (b) { el._list = el._list.filter((m) => m !== +b.dataset.m); draw(); }
+      else if (e.target.closest(".chip-add button")) add();
+    };
+    const inp = el.querySelector("input");
+    const add = () => { const n = parseMins(inp.value)[0]; if (!n) return; el._list = parseMins([...el._list, n].join(",")); inp.value = ""; draw(); };
+    inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } };
+    draw();
+  }
+
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,raid_minutes,recruit_lead,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -308,12 +342,15 @@
         </div>
       </div>
       <div class="card">
-        <h2>알림 · 참여</h2>
-        <div class="grid">
-          <label class="field">레이드 등록 알림을 출현 몇 분 전에 (0 = 안 함 · 리젠 보스, 컷 룰의 요일·시각 보스)<input id="s-lead" type="number" min="0" max="120" value="${s.recruit_lead ?? 5}"></label>
-          <label class="field">출현 알림 (분 전, 쉼표)<input id="s-alerts" value="${esc(s.alert_offsets ?? "5,1")}"></label>
-          <label class="field">컷 후 참여 받는 시간 (분)<input id="s-raid" type="number" min="1" max="120" value="${s.raid_minutes ?? 5}"></label>
-        </div>
+        <h2>🔔 보스 알림</h2>
+        <p class="muted small">출현 몇 분 전에 알릴지. 보스마다 인터 · 본토는 아래 보스 목록에서 골라요.</p>
+        <div class="alert-line"><b>인터</b>${chipEdit("s-inter", s.alert_inter ?? "20,10")}</div>
+        <div class="alert-line"><b>본토</b>${chipEdit("s-main", s.alert_offsets ?? "5,1")}</div>
+        <label class="switch"><input type="checkbox" id="s-spawn" ${(s.alert_spawn ?? 1) ? "checked" : ""}><span class="knob"></span> 출현 시각에도 알림</label>
+      </div>
+      <div class="card">
+        <h2>🤝 참여</h2>
+        <label class="field narrow">컷 후 참여 받는 시간 (분)<input id="s-raid" type="number" min="1" max="120" value="${s.raid_minutes ?? 5}"></label>
       </div>
       <div class="card">
         <h2>채널</h2>
@@ -340,8 +377,9 @@
       <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>`;
     mentionCard();
     sheetCard();
+    v.querySelectorAll(".chip-edit").forEach(chipInit);
     $("#s-save").onclick = async () => {
-      const offs = [...new Set(($("#s-alerts").value.match(/\d+/g) || []).map(Number))].sort((a, b) => b - a);
+      const csv = (id) => $(id)._list.join(",");
       const mode = v.querySelector("input[name=greet]:checked").value;
       const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
       const val = (id) => $(id).value || null;
@@ -349,7 +387,7 @@
       if (homeSrv && !/^[가-힣]{2}[0-9]$/.test(homeSrv)) { toast("서버 꼬리표는 포세1 · 아테3 처럼 한글 2자 + 숫자 1자리만 받아요"); return; }
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null,
-        home_srv: homeSrv, recruit_lead: +$("#s-lead").value || 0, alert_offsets: offs.join(","), raid_minutes: Math.max(1, +$("#s-raid").value || 5),
+        home_srv: homeSrv, alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
@@ -741,7 +779,7 @@
     let members = [];
     for (let i = 0; i < shown.length; i += 100) {
       const ids = shown.slice(i, i + 100).map((r) => r.id);
-      members = members.concat(await q(sb.from("raid_members").select("raid_id::text,user_id::text,display_name,joined_at").in("raid_id", ids)));
+      members = members.concat(await q(sb.from("web_raid_attend").select("raid_id,user_id,display_name,joined_at").in("raid_id", ids)));
     }
     const byRaid = {}, people = {};
     for (const m of members) {
