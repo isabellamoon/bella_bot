@@ -1,0 +1,115 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><meta name="color-scheme" content="light dark">
+<title>닉네임 현황판</title>
+<style>
+html{background:var(--bg)}
+/* 레이아웃: 상단 요약 + 탭 4개(전체·아래·폭군·단검) + 검색 + 닉네임 격자 */
+:root{
+  --bg:#f3f4f7; --panel:#ffffff; --ink:#1b1e2b; --muted:#667085; --line:#dde0e8;
+  --accent:#4b52d8; --accent-ink:#ffffff;
+  --g-all:#4b52d8; --g-area:#2f7d6d; --g-tyr:#c2503a; --g-dag:#8a6d1f;
+  --font:"Noto Sans KR",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121420; --panel:#1b1e2e; --ink:#e8eaf3; --muted:#9aa0b8; --line:#2c3047;
+  --accent:#8f95ff; --accent-ink:#12142a; --g-all:#8f95ff; --g-area:#5fc4ae; --g-tyr:#ff8a73; --g-dag:#e0bf5e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121420; --panel:#1b1e2e; --ink:#e8eaf3; --muted:#9aa0b8; --line:#2c3047;
+  --accent:#8f95ff; --accent-ink:#12142a; --g-all:#8f95ff; --g-area:#5fc4ae; --g-tyr:#ff8a73; --g-dag:#e0bf5e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);padding-block:20px 40px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font-size:22px;letter-spacing:-.01em;text-wrap:balance}
+.sub{margin:2px 0 0;color:var(--muted);font-size:13px}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tab{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;
+  padding:10px 8px;text-align:left;cursor:pointer;font:inherit;min-width:0;border-top:3px solid var(--c)}
+.tab b{display:block;font-size:13px;color:var(--muted);font-weight:600}
+.tab span{display:block;font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.tab[aria-selected="true"]{outline:2px solid var(--c);outline-offset:-1px;background:color-mix(in srgb,var(--c) 10%,var(--panel))}
+.tab:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bar input{flex:1;min-width:160px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.bar .n{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.m{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.m .nm{font-weight:600;overflow-wrap:anywhere}
+.m .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted)}
+.tag{border-radius:99px;padding:0 8px;border:1px solid currentColor;color:var(--c);font-size:12px;line-height:1.6}
+.role{color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:0 8px;font-size:12px;line-height:1.6}
+.empty{padding:28px;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:10px}
+.top{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.refresh{appearance:none;font:inherit;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:600}
+.refresh:disabled{opacity:.6;cursor:default}
+.refresh:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.note{color:var(--muted);font-size:12px}
+@media (max-width:520px){.tabs{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr 1fr}}
+@media (max-width:360px){.grid{grid-template-columns:1fr}}
+</style>
+</head><body>
+<main>
+  <header class="top"><div><h1>닉네임 현황판</h1><p class="sub" id="sub">불러오는 중…</p></div><button class="refresh" id="refresh" type="button">↻ 갱신</button></header>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="bar"><input id="q" type="search" placeholder="닉네임 검색" aria-label="닉네임 검색"><span class="n" id="cnt"></span></div>
+  <div class="grid" id="list" role="tabpanel"></div>
+  <p class="note" id="note"></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+let DATA = [], people = [], synced = "";
+const TABS = [["all","전체","--g-all"],["아래","아래","--g-area"],["폭군","폭군","--g-tyr"],["단검","단검","--g-dag"]];
+const KEYS = ["아래","폭군","단검"];
+const groupOf = (n, roles, grp) => {
+  if (grp) return grp;                                          // 사람별 지정(봇 guild_map)이 있으면 그것
+  const segs = n.split("/").map((x) => x.trim());
+  const s = n.replace(/^[\s\[\(]+/, "");
+  if (segs.includes("단검") || s.startsWith("단검")) return "단검";   // 단검은 별명: '/' 로 나눈 조각이 정확히 단검이거나 앞에 붙음
+  const r = roles || [];
+  if (r.includes("폭군 길드")) return "폭군";                     // 그 밖에는 역할 우선 (별명 앞글자가 달라도 역할대로)
+  if (r.some((x) => x.startsWith("아래"))) return "아래";
+  if (r.includes("중립 길드")) return "중립";
+  return KEYS.find((k) => s.startsWith(k)) || KEYS.find((k) => n.includes(k)) || "";   // 역할이 없으면 별명으로
+};
+const RAW = (m) => Array.isArray(m.roles) ? m.roles : String(m.roles || "").split("|");
+const ROLE = (r) => r.filter((x) => x === "아래 간부" ? true : x === "관리자").map((x) => x.replace("아래 ", ""));
+const build = () => { people = DATA.map((m) => ({ nick: m.nick.trim(), g: groupOf(m.nick, RAW(m), m.grp), roles: ROLE(RAW(m)) })).sort((a, b) => a.nick.localeCompare(b.nick, "ko")); };
+const cnt = (k) => k === "all" ? people.length : people.filter((p) => p.g === k).length;
+const $ = (s) => document.querySelector(s);
+let cur = "all";
+const HASH = { all: "all", area: "아래", tyrant: "폭군", dagger: "단검" };
+const hashOf = (k) => Object.keys(HASH).find((h) => HASH[h] === k);
+function fromHash() { const k = HASH[location.hash.slice(1)]; cur = k || "all"; }
+function draw() {
+  $("#tabs").innerHTML = TABS.map(([k, t, c]) =>
+    `<button class="tab" role="tab" aria-selected="${cur === k}" data-k="${k}" style="--c:var(${c})"><b>${t}</b><span>${cnt(k)}</span></button>`).join("");
+  const term = $("#q").value.trim().toLowerCase();
+  const rows = people.filter((p) => (cur === "all" || p.g === cur) && (!term || p.nick.toLowerCase().includes(term)));
+  const color = (g) => { const t = TABS.find((x) => x[0] === g); return t ? `var(${t[2]})` : "var(--muted)"; };
+  $("#list").innerHTML = rows.map((p) => `<div class="m" style="--c:${color(p.g)}"><span class="nm"></span>
+      <span class="meta">${cur === "all" ? `<span class="tag">${p.g || "그 외"}</span>` : ""}${p.roles.map((r) => `<span class="role">${r}</span>`).join("")}</span></div>`).join("")
+    || `<div class="empty" style="grid-column:1/-1">${term ? "검색에 맞는 닉네임이 없어요." : "이 길드 닉네임이 없어요."}</div>`;
+  [...$("#list").querySelectorAll(".nm")].forEach((el, i) => { el.textContent = rows[i].nick; });
+  $("#cnt").textContent = `${rows.length}명`;
+  const other = people.filter((p) => !p.g).length;
+  $("#note").textContent = `디스코드 역할(폭군 길드 · 아래 길드원)을 먼저 보고, 단검은 별명의 '/' 조각이 단검인 사람과 따로 지정한 2명으로 나눴어요. 나머지(중립 등) ${other}명은 '전체'에만 보여요.`;
+}
+const sb = window.supabase.createClient(window.BOT_CONFIG.SUPABASE_URL, window.BOT_CONFIG.SUPABASE_ANON_KEY);
+async function load() {
+  const btn = $("#refresh"); btn.disabled = true; $("#sub").textContent = "불러오는 중…";
+  const { data, error } = await sb.rpc("dcm_members");
+  btn.disabled = false;
+  if (error) { $("#sub").textContent = "불러오지 못했어요. 잠시 뒤 다시 눌러 주세요."; return; }
+  DATA = data || []; build();
+  const t = DATA.map((m) => m.synced_at).sort().pop();
+  $("#sub").textContent = `디스코드 길드원 ${people.length}명 · 봇이 ${t ? t.slice(5, 16).replace("T", " ") : "-"}에 저장한 기준 (10분마다)`;
+  draw();
+}
+$("#refresh").onclick = load;
+$("#tabs").onclick = (e) => { const b = e.target.closest(".tab"); if (!b) return; cur = b.dataset.k; location.hash = hashOf(cur); draw(); };
+$("#q").oninput = draw;
+addEventListener("hashchange", () => { fromHash(); draw(); });
+fromHash(); draw(); load();
+</script>
+</body></html>
