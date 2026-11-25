@@ -200,3 +200,5 @@ label.field.narrow { max-width: 220px; }
 td .kind-sel { min-width: 72px; }
 td input.offs { min-width: 80px; max-width: 120px; }
 @media (max-width: 640px) { .alert-line > b { width: 100%; } }
+tr.pending-row td { color: var(--muted); }
+tr.pending-row td:last-child { color: var(--text); }

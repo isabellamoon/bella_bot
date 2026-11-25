@@ -302,7 +302,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,overdue_alert,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -347,6 +347,7 @@
         <div class="alert-line"><b>인터</b>${chipEdit("s-inter", s.alert_inter ?? "20,10")}</div>
         <div class="alert-line"><b>본토</b>${chipEdit("s-main", s.alert_offsets ?? "5,1")}</div>
         <label class="switch"><input type="checkbox" id="s-spawn" ${(s.alert_spawn ?? 1) ? "checked" : ""}><span class="knob"></span> 출현 시각에도 알림</label>
+        <label class="switch"><input type="checkbox" id="s-overdue" ${(s.overdue_alert ?? 1) ? "checked" : ""}><span class="knob"></span> 컷이 30분 넘게 안 올라온 보스 글</label>
       </div>
       <div class="card">
         <h2>🤝 참여</h2>
@@ -387,7 +388,7 @@
       if (homeSrv && !/^[가-힣]{2}[0-9]$/.test(homeSrv)) { toast("서버 꼬리표는 포세1 · 아테3 처럼 한글 2자 + 숫자 1자리만 받아요"); return; }
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), game: $("#s-game").value || null,
-        home_srv: homeSrv, alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, raid_minutes: Math.max(1, +$("#s-raid").value || 5),
+        home_srv: homeSrv, alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, overdue_alert: $("#s-overdue").checked ? 1 : 0, raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
@@ -792,6 +793,8 @@
       }
     }
     const rank = Object.values(people).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    // 출석 보류분: 공격대 스샷에서 디스코드와 못 맞춘 게임 닉 (순위 번호 없이 맨 아래, 합계·보스·레기온 0). 맞춰지면 자동으로 사라지고 위로 올라감.
+    const pending = await q(sb.rpc("web_pending_attend", { gid: G(), s: start, e: end })).catch(() => []);
     const nb = counted.filter((r) => r.category !== "battle").length;
     v.innerHTML = `
       <div class="card">
@@ -800,9 +803,10 @@
             ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${shown.length > counted.length ? ` · 📋 콘텐츠 참여 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
-        <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th></tr></thead><tbody>
-          ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">기록 없음</td></tr>`}
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${pending.length ? ` · 디스코드 미확인 ${pending.length}명` : ""}${shown.length > counted.length ? ` · 📋 콘텐츠 참여 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
+        <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th><th>디스코드</th><th title="공격대 스샷에 있었는데 디스코드와 아직 못 맞춘 횟수">출석 (보류분)</th></tr></thead><tbody>
+          ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td><td>${esc(p.name)}</td><td class="muted">0</td></tr>`).join("") || (pending.length ? "" : `<tr><td colspan="7" class="muted">기록 없음</td></tr>`)}
+          ${pending.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td><td>0</td><td>0</td><td>0</td><td class="muted">(미확인)</td><td><b>${p.cnt}</b></td></tr>`).join("")}
         </tbody></table></div>
       </div>
       <div class="card">
@@ -841,8 +845,9 @@
     $("#a-csv1").onclick = () => download(`출석명단_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["날짜", "종류", "보스·전투", "인원", "참여자"],
       ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
         (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", ")])]);
-    $("#a-csv2").onclick = () => download(`출석순위_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온"],
-      ...rank.map((p, i) => [i + 1, p.name, p.total, p.boss, p.battle])]);
+    $("#a-csv2").onclick = () => download(`출석순위_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온", "디스코드", "출석(보류분)"],
+      ...rank.map((p, i) => [i + 1, p.name, p.total, p.boss, p.battle, p.name, 0]),
+      ...pending.map((p) => ["", p.nick, 0, 0, 0, "(미확인)", p.cnt])]);
   }
 
   // ---------- 관리자 ----------
