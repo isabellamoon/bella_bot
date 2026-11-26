@@ -494,11 +494,13 @@
         <p><button class="primary" id="vb-save">저장</button></p>
       </div>
       <div class="card" id="vb-builds"></div>
+      ${state.botOwner ? `<div class="card" id="vb-beta"></div>` : ""}
       <div class="card"><h2>⬇️ 앱 받기</h2><div id="vb-dl"></div></div>
       <div class="card"><h2>데스노트 · 화이트리스트</h2><div id="vb-lists"></div></div>`;
     const adminPm = { download_win: true, download_mobile: true };     // 관리자는 늘 받을 수 있음
     vbDownload($("#vb-dl"), adminPm);
     vbBuilds($("#vb-builds"), s, () => vbDownload($("#vb-dl"), adminPm));
+    if (state.botOwner) vbBeta($("#vb-beta"));
     $("#vb-save").onclick = async () => {
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), virtual_bella: $("#vb-on").checked ? 1 : 0,
@@ -1401,6 +1403,37 @@
     };
     v.querySelectorAll("[data-wdel]").forEach((b) => (b.onclick = async () => {
       await q(sb.rpc("web_white_del", { gid: G(), nm: b.dataset.wdel })); toast("뺐어요"); render();
+    }));
+  }
+
+  // ---------- 베타 테스터 (봇 주인만): 표 vb_beta (RLS = 봇 주인만 읽기 · 쓰기). 앱은 vb_me.beta 로 자기 것만 앎 ----------
+  async function vbBeta(box) {
+    if (!box) return;
+    const [rows, users] = await Promise.all([
+      q(sb.from("vb_beta").select("user_id::text,added_at").order("added_at")).catch(() => null),
+      q(sb.from("web_users").select("user_id::text,display_name").eq("guild_id", G()).order("display_name")).catch(() => []),
+    ]);
+    const nm = Object.fromEntries(users.map((u) => [u.user_id, u.display_name]));
+    if (rows === null) { box.innerHTML = `<h2>🧪 베타 테스터</h2><p class="muted small">⚠️ 명단을 불러오지 못했어요. 새로고침해 주세요.</p>`; return; }
+    const have = new Set(rows.map((r) => r.user_id));
+    box.innerHTML = `<h2>🧪 베타 테스터 <span class="muted small">(봇 주인만 · 모든 서버 공통)</span></h2>
+      <p class="muted small">베타 = 앱이 찰칵마다 사진을 PC · 폰에 남겨요. 베타가 아니면 끝까지 전송 못 한 사진만 남아요. 서버 관리자는 바꿀 수 없어요.</p>
+      <div class="members">${rows.map((r) => `<span class="member">${esc(nm[r.user_id] || r.user_id)} <span class="muted small">${esc(r.user_id)}</span><button title="빼기" data-bdel="${esc(r.user_id)}">×</button></span>`).join("") || `<span class="muted small">아무도 없어요</span>`}</div>
+      <div class="row"><select id="vb-beta-pick"><option value="">+ 이 서버 멤버에서 고르기</option>
+          ${users.filter((u) => !have.has(u.user_id)).map((u) => `<option value="${esc(u.user_id)}">${esc(u.display_name)}</option>`).join("")}</select>
+        <input id="vb-beta-id" placeholder="또는 디스코드 ID (숫자)" inputmode="numeric" style="width:14em"><button id="vb-beta-add">넣기</button></div>`;
+    const add = async (id) => {
+      if (!/^\d{15,20}$/.test(id)) return toast("디스코드 ID 는 숫자 15~20자리예요", true);
+      if (have.has(id)) return toast("이미 베타예요");
+      await q(sb.from("vb_beta").insert({ user_id: id, added_at: kstIso(new Date()), added_by: state.me.id }));
+      toast(`베타: ${nm[id] || id} 넣었어요`); vbBeta(box);
+    };
+    box.querySelector("#vb-beta-pick").onchange = (e) => { if (e.target.value) add(e.target.value); };
+    box.querySelector("#vb-beta-add").onclick = () => add(box.querySelector("#vb-beta-id").value.trim());
+    box.querySelectorAll("[data-bdel]").forEach((b) => (b.onclick = async () => {
+      if (!confirm(`${nm[b.dataset.bdel] || b.dataset.bdel} 을(를) 베타에서 뺄까요?`)) return;
+      await q(sb.from("vb_beta").delete().eq("user_id", b.dataset.bdel));
+      toast("베타에서 뺐어요"); vbBeta(box);
     }));
   }
 
