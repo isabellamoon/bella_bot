@@ -637,8 +637,8 @@
         toast("백업 드라이브 연결을 끊었어요"); sheetCard();
       });
     };
-    const howto = `<p class="muted small">구글 계정으로 허용하면 그 계정 드라이브에 <b>'벨라꼬붕 출석 기록'</b> 시트를 만들고, 10분마다 월간 순위 · 참여 상세 · 보스 컷 기록을 채워요.
-      봇은 자기가 만든 시트만 다룰 수 있어요. 기존 시트에서 쓰려면 <code>=IMPORTRANGE("시트 주소", "월간 순위!A1:G300")</code> 로 끌어가세요.</p>`;
+    const howto = `<p class="muted small">구글 계정으로 허용하면 그 계정 드라이브에 <b>'벨라꼬붕 출석 기록'</b> 시트를 만들고, 10분마다 요약 · 주간 순위 · 참여 상세 · 보스 컷 기록을 채워요.
+      봇은 자기가 만든 시트만 다룰 수 있어요. 기존 시트에서 쓰려면 <code>=IMPORTRANGE("시트 주소", "주간 순위!A1:G300")</code> 로 끌어가세요.</p>`;
     if (!l) {
       card.innerHTML = `<h2>📊 구글 시트</h2>${howto}<button class="primary" id="g-link">구글 시트 연결</button>${backup}`;
       $("#g-link").onclick = () => connectGoogle("sheet");
@@ -816,7 +816,7 @@
     for (const m of members) {
       (byRaid[m.raid_id] ||= []).push(m);
     }
-    // 순위: 시트 '월간 순위'와 같은 두 블록 — [출석] = 출석 보기 기준, [전체] = 빠진 보스 · 전투까지. 블록 안 순서 = 합계 · 보스 · 전투 · 종류별 · 보류분
+    // 순위: 시트 '주간 순위'와 같은 두 블록 — [출석] = 출석 보기 기준, [전체] = 빠진 보스 · 전투까지. 블록 안 순서 = 합계 · 보스 · 전투 · 종류별 · 보류분
     const types = av.battle_view === "practice" ? BATTLE_TYPES.filter((t) => av.practice.includes(t)) : BATTLE_TYPES;
     const inT = (t) => types.includes(t);
     const blk = () => ({ total: 0, boss: 0, battle: 0, t: {} });
@@ -872,7 +872,7 @@
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
         <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
-        <p class="muted small">시트 '월간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
+        <p class="muted small">시트 '주간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
         <div class="table-wrap"><table class="rank two-blk"><thead>
           <tr><th rowspan="2">#</th><th rowspan="2">이름</th><th colspan="${HEAD.length}" class="blk-sel">[출석]</th><th colspan="${HEAD.length}" class="blk-all">[전체]</th><th rowspan="2">디스코드</th></tr>
           <tr>${HEAD.map((h) => `<th class="blk-sel">${esc(h)}</th>`).join("")}${HEAD.map((h) => `<th class="blk-all">${esc(h)}</th>`).join("")}</tr></thead><tbody>
@@ -938,7 +938,7 @@
       ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
         (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", "),
         r.category === "event" ? "-" : excluded(r) ? "X" : "O"])]);
-    // 순위 CSV: 시트 '월간 순위'와 같은 열 (월 · 디스코드 ID 대신 순위 · 이름부터)
+    // 순위 CSV: 시트 '주간 순위'와 같은 열 (월 · 디스코드 ID 대신 순위 · 이름부터)
     const csvHead = ["순위", "이름", ...HEAD.map((h) => `[출석] ${h}`), ...HEAD.map((h) => `[전체] ${h}`), "디스코드"];
     $("#a-csv2").onclick = () => download(fname("출석순위"), [csvHead,
       ...rank.map((p) => [p.sel.total ? ranked.indexOf(p) + 1 : "", p.name, ...cells(p.sel, 0, true), ...cells(p.all, 0, false), p.name]),
