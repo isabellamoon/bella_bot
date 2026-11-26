@@ -457,14 +457,18 @@
         } else await w.q(w.sb.from("boss_settings").upsert({ guild_id: gid, ...v.patch }, { onConflict: "guild_id" }));
       } catch (err) {
         busy = false; b.disabled = false; b.textContent = okLabel;
-        // 서버가 준 이유(예: '점수는 0~100')를 그대로 보여 줌
-        bubble(`저장하지 못했어요. 바뀐 건 없어요.${err && err.message ? `<br><span class="setup-err">${esc(err.message)}</span>` : ""}<br>고친 뒤 [← 뒤로] 로 다시 하거나, 권한(관리자) · 인터넷 연결을 확인하고 다시 눌러 주세요.`);
+        // 서버가 준 이유(예: '점수는 0~100' · '조금 뒤에 다시 보내 주세요 (1분에 한 번)')를 그대로 채팅에 — q() 가 띄운 같은 말 토스트는 닫아 두 번 안 보이게
+        const why = err && err.message ? String(err.message).replace(/^오류:\s*/, "") : "";
+        if (why) { const t = document.querySelector("#toast"); if (t) t.hidden = true; }
+        const sug = run.flow.target === "suggest";
+        bubble(`${sug ? "보내지 못했어요." : "저장하지 못했어요. 바뀐 건 없어요."}${why ? `<br><span class="setup-err">${esc(why)}</span>` : `<br>인터넷 연결을 확인하고 다시 눌러 주세요.`}`
+          + (why ? `<br>고칠 게 있으면 [← 뒤로] 로 고친 뒤 다시 눌러 주세요.` : ""));
         return;
       }
       busy = false;
       me(okLabel);
       bubble(md(run.flow.target === "suggest" ? run.flow.done : `바꿨어요! ${run.flow.done || ""}`));
-      w.toast(run.flow.target === "suggest" ? "보냈어요" : `설정 도우미: ${run.flow.title} 저장했어요`);
+      if (run.flow.target !== "suggest") w.toast(`설정 도우미: ${run.flow.title} 저장했어요`);   // 문의하기는 채팅 답만 (두 번 안 보이게)
       if (["settings", "attendance", "vbella"].includes(w.state.tab)) w.render();
       menu(run.flow.target === "suggest" ? "더 도와드릴 게 있나요?" : "더 바꿀 게 있나요?");
     };
