@@ -379,9 +379,11 @@
       </div>
       <p><button class="primary" id="s-save">설정 저장</button></p>
       <div class="card" id="m-card"><h2>📣 알림 멘션</h2><p class="muted small">불러오는 중…</p></div>
-      <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>`;
+      <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>
+      <div class="card" id="fb-card"><h2>⭐ 관리판 보드</h2><p class="muted small">불러오는 중…</p></div>`;
     mentionCard();
     sheetCard();
+    favBoardCard($("#fb-card"));
     v.querySelectorAll(".chip-edit").forEach(chipInit);
     $("#s-save").onclick = async () => {
       const csv = (id) => $(id)._list.join(",");
@@ -404,6 +406,62 @@
       }, { onConflict: "guild_id" }));
       toast("설정을 저장했어요");
     };
+  }
+
+  // ---------- ⭐ 관리판 보드 (디스코드 관리판에 보일 버튼 최대 10개 · 순서) ----------
+  // 저장은 boss_settings.panel_board (JSON 목록, NULL = 추천). 봇 fav_board.py 의 GROUPS · RECOMMENDED · 이름과 같게 유지.
+  const FB_GROUPS = [
+    ["시작·운영", [["quick", "⚡ 한 번에 시작"], ["battle", "🛡️ 전투 예약"], ["sheet", "📊 구글 연결"], ["checkpoint", "📍 체크포인트"],
+      ["cleanup", "🧹 게시판 청소"], ["refresh", "🔄 새로고침"], ["vbella", "✒️ 앱 · 길드원 권한"], ["vbweb", "🌐 버추얼 벨라(웹) 바로가기"]]],
+    ["채널", [["chat", "💬 채팅 채널"], ["voice", "🔊 음성 채널"], ["mention", "📣 알림 멘션"]]],
+    ["서버", [["admin", "🛡️ 관리자"], ["homesrv", "🌐 서버 이전 등록"], ["invite", "🔗 초대 링크"], ["leave", "🚪 정리하고 내보내기"]]],
+    ["설정", [["game", "🎮 게임"], ["timing", "⏱️ 알림·참여"], ["bossnames", "🏷️ 보스 이름·별명"], ["names", "📝 표시 이름"], ["aliases", "🏷️ 별명"]]],
+  ];
+  const FB_REC = ["quick", "battle", "sheet", "refresh", "vbella", "chat", "voice", "mention", "timing", "bossnames"];
+  const FB_MAX = 10;
+  async function favBoardCard(box) {
+    if (!box) return;
+    const label = Object.fromEntries(FB_GROUPS.flatMap(([, l]) => l));
+    const order = FB_GROUPS.flatMap(([, l]) => l.map(([k]) => k));
+    const rows = await q(sb.from("boss_settings").select("panel_board").eq("guild_id", G()));
+    let list;
+    try { list = rows[0] && rows[0].panel_board ? JSON.parse(rows[0].panel_board) : FB_REC.slice(); } catch (e) { list = FB_REC.slice(); }
+    list = [...new Set(list.filter((k) => label[k]))].slice(0, FB_MAX);
+    const draw = () => {
+      box.innerHTML = `<h2>⭐ 관리판 보드</h2>
+        <p class="muted small">디스코드 관리판에 보일 버튼을 최대 ${FB_MAX}개 고르고 순서를 정해요. 디스코드 [⭐ 보드 편집]과 같은 값이라 어느 쪽에서 바꿔도 보드가 바뀌어요 (웹에서 저장하면 15초 안에).
+          [⭐ 보드 편집] · [📂 전체 기능] · [🌐 웹 관리]는 항상 마지막 줄에 있어요.</p>
+        <div class="grid">${FB_GROUPS.map(([g, l]) => `<div><b class="small">${g}</b><br>${l.map(([k, t]) =>
+          `<label><input type="checkbox" class="fb-pick" value="${k}" ${list.includes(k) ? "checked" : ""}> ${esc(t)}</label><br>`).join("")}</div>`).join("")}</div>
+        <h3 class="small" style="margin:12px 0 6px">순서 (${list.length}/${FB_MAX})</h3>
+        <ol class="fb-order">${list.map((k, i) => `<li>${esc(label[k])}
+          <button type="button" class="ghost small" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="위로">↑</button>
+          <button type="button" class="ghost small" data-down="${i}" ${i === list.length - 1 ? "disabled" : ""} aria-label="아래로">↓</button></li>`).join("") || `<span class="muted small">비어 있어요</span>`}</ol>
+        <p><button class="primary" id="fb-save">보드 저장</button> <button class="ghost" id="fb-group">묶음 순서로</button> <button class="ghost" id="fb-rec">추천 10개로</button></p>`;
+    };
+    box.onchange = (e) => {
+      const c = e.target.closest(".fb-pick");
+      if (!c) return;
+      if (c.checked) {
+        if (list.length >= FB_MAX) { c.checked = false; toast(`최대 ${FB_MAX}개까지 고를 수 있어요`); return; }
+        list.push(c.value);
+      } else list = list.filter((k) => k !== c.value);
+      draw();
+    };
+    box.onclick = async (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const swap = (i, j) => { [list[i], list[j]] = [list[j], list[i]]; draw(); };
+      if (b.dataset.up) swap(+b.dataset.up, +b.dataset.up - 1);
+      else if (b.dataset.down) swap(+b.dataset.down, +b.dataset.down + 1);
+      else if (b.id === "fb-group") { list = order.filter((k) => list.includes(k)); draw(); }
+      else if (b.id === "fb-rec") { list = FB_REC.slice(); draw(); }
+      else if (b.id === "fb-save") {
+        await q(sb.from("boss_settings").upsert({ guild_id: G(), panel_board: JSON.stringify(list) }, { onConflict: "guild_id" }));
+        toast("관리판 보드를 저장했어요");
+      }
+    };
+    draw();
   }
 
   // ---------- 버추얼 벨라 탭: 안내 · 설정(켜기 · 길드원 권한) · 데스노트 · 화이트리스트 ----------
@@ -791,10 +849,11 @@
       if (end <= af) { start = end; periodLabel += " (보관 기간 — 기록 안 보임)"; }
       else { start = af; periodLabel += ` (${afMd}부터)`; }
     }
-    const [raids, bosses, stRows] = await Promise.all([
+    const [raids, bosses, stRows, anyBattle] = await Promise.all([
       q(sb.from("raids").select("id::text,boss,killed_at,category,battle_type,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
       q(sb.from("bosses").select("name,display,kind").eq("guild_id", G()).order("name")),
       q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats").eq("guild_id", G())),
+      q(sb.from("raids").select("id").eq("guild_id", G()).eq("category", "battle").limit(1)),   // 출석 분류 추천: 전투 기록이 있는지
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
     // 출석 보기 (길드 전체): 봇 att_view.py · DB att_in_view 와 같은 계산
@@ -910,7 +969,7 @@
     v.querySelectorAll(".prac-t").forEach((x) => (x.onchange = () => saveView({ att_practice: JSON.stringify(picked("prac-t")) }, "프랙티스 전투를 바꿨어요")));
     const fr = $("#farm-reset"); if (fr) fr.onclick = () => saveView({ att_farm: null }, "파머스: 기본(인터보스 5종)");
     const wr = $("#war-reset"); if (wr) wr.onclick = () => saveView({ att_war_off: null }, "워페어: 전체 보스");
-    catsEditor($("#cats-box"), bosses, stRows[0], label, saveView);
+    catsEditor($("#cats-box"), bosses, stRows[0], label, saveView, anyBattle.length > 0);
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
     v.querySelectorAll("details[data-raid]").forEach((d) => {
@@ -947,18 +1006,20 @@
       ...pNicks.map((p) => ["", p.nick, ...cells(blk(), p.sel, true), ...cells(blk(), p.all, false), "(미확인)"])]);
   }
 
-  // 출석 분류 (봇 att_view.py 의 default_cats · clean_cats 와 같은 값) — 구글 시트 '요약' 보기 칸 · '주간 순위' 기준
+  // 출석 분류 (봇 att_view.py 의 suggest_cats · clean_cats 와 같은 값) — 구글 시트 '요약' 보기 칸 · '주간 순위' 기준
+  // 관리자가 입력 · 편집. 비어 있으면 분류 없음 (시트엔 보스 · 전투 출석만). 추천은 [추천 적용] 해야 들어감.
   const CAT_SCOPES = { boss: "보스", battle: "전투", any: "전부" };
   const GUILD_WAR = ["공성/요새전", "점령전", "엘리시움", "길드레이드"];
   const CAT_MAX = 12;
   const CAT_RESERVED = ["합계", "보스", "전투", "합계 출석", "보스 출석", "전투 출석"];
   const KIND_LABEL = { inter: "인터서버 보스", main: "본토 보스" };
   const catLabel = (n) => (n.endsWith("출석") ? n : `${n} 출석`);
-  function defaultCats(bosses) {
-    const out = [];
-    if (bosses.some((b) => b.kind === "inter")) out.push({ name: "인터보스", scope: "boss", kinds: ["inter"], bosses: [], types: [] });
-    out.push({ name: "일반보스", scope: "boss", kinds: [], bosses: [], types: [] });
-    out.push({ name: "길드전투", scope: "battle", kinds: [], bosses: [], types: [...GUILD_WAR] });
+  const isRest = (c) => c.scope === "any" && !c.kinds.length && !c.bosses.length && !c.types.length;
+  function suggestCats(bosses, hasBattle) {
+    const out = [], kinds = new Set(bosses.map((b) => b.kind || "main"));
+    if (kinds.has("inter")) out.push({ name: "인터보스", scope: "boss", kinds: ["inter"], bosses: [], types: [] });
+    if ([...kinds].some((k) => k !== "inter")) out.push({ name: "일반보스", scope: "boss", kinds: [], bosses: [], types: [] });
+    if (hasBattle) out.push({ name: "길드전투", scope: "battle", kinds: [], bosses: [], types: [...GUILD_WAR] });
     out.push({ name: "기타", scope: "any", kinds: [], bosses: [], types: [] });
     return out;
   }
@@ -974,60 +1035,81 @@
       seen.add(name);
       out.push({ name, scope: CAT_SCOPES[c.scope] ? c.scope : "any", kinds: strs(c.kinds), bosses: strs(c.bosses), types: strs(c.types) });
     }
-    return out.length ? out : null;
+    return out;
   }
-  function catsEditor(box, bosses, st, label, saveView) {
-    const saved = cleanCats(st?.att_cats);
-    const cats = JSON.parse(JSON.stringify(saved || defaultCats(bosses)));
+  function catsEditor(box, bosses, st, label, saveView, hasBattle) {
+    const saved = cleanCats(st?.att_cats) || [];
+    // 편집용: 보통 분류 목록 + 맨 끝 '나머지 전부' 칸(켜고 끔)
+    let cats, rest;
+    const split = (list) => {
+      const l = JSON.parse(JSON.stringify(list));
+      const last = l[l.length - 1];
+      rest = last && isRest(last) ? { on: true, name: l.pop().name } : { on: false, name: "기타" };
+      cats = l;
+    };
+    split(saved);
     const kinds = [...new Set(bosses.map((b) => b.kind || "main"))];
     const ck = (cls, i, val, on, text) => `<label class="chk"><input type="checkbox" class="${cls}" data-i="${i}" value="${esc(val)}" ${on ? "checked" : ""}> ${esc(text)}</label>`;
-    const rest = { boss: "나머지 보스 전부", battle: "나머지 전투 전부", any: "나머지 전부 (보스 · 전투)" };
+    const restOf = { boss: "나머지 보스 전부", battle: "나머지 전투 전부", any: "나머지 전부 (보스 · 전투)" };
     const open = new Set();
+    let dirty = false;
     const draw = (msg) => {
+      const sug = suggestCats(bosses, hasBattle);
       box.innerHTML = `
         <h2>🗂️ 출석 분류 <span class="muted small">(구글 시트 '요약' 보기 칸 · '주간 순위' 기준 · 길드 전체)</span></h2>
-        <p class="muted small">출석 보기로 센 기록을 <b>위에서부터</b> 보고 처음 맞는 분류 하나에만 넣어요 (두 번 안 셈). 규칙을 하나도 안 고른 분류 = 앞 분류에 안 든 나머지.${saved ? "" : " <b>지금은 기본값</b>이에요."}</p>
+        <p class="muted small">출석 보기로 센 기록을 <b>위에서부터</b> 보고 처음 맞는 분류 하나에만 넣어요 (두 번 안 셈). 규칙을 하나도 안 고른 분류 = 앞 분류에 안 든 나머지(그 범위 전부).
+          ${saved.length ? "" : "<b>지금은 분류가 없어요</b> — 시트엔 보스 · 전투 출석만 나와요."}</p>
+        <p class="muted small">추천: ${sug.map((c) => esc(c.name)).join(" · ")} <button id="cat-suggest">추천 적용</button> <span class="muted small">(채워 넣기만 — 고친 뒤 저장)</span></p>
         ${cats.map((c, i) => `<div class="cat-row" style="border-top:1px solid var(--line, #ddd);padding:8px 0">
           <div class="row"><b>${i + 1}.</b> <input class="cat-name" data-i="${i}" value="${esc(c.name)}" maxlength="20" style="width:9em">
             <select class="cat-scope" data-i="${i}">${Object.entries(CAT_SCOPES).map(([k, t]) => `<option value="${k}" ${c.scope === k ? "selected" : ""}>${t}</option>`).join("")}</select>
             <button class="cat-up" data-i="${i}" ${i ? "" : "disabled"}>↑</button><button class="cat-down" data-i="${i}" ${i < cats.length - 1 ? "" : "disabled"}>↓</button>
             <button class="cat-del" data-i="${i}">빼기</button>
-            <span class="muted small">시트 칸: ${esc(catLabel(c.name || "?"))}${c.kinds.length || c.bosses.length || c.types.length ? "" : ` · <b>${rest[c.scope]}</b>`}</span></div>
+            <span class="muted small">시트 칸: ${esc(catLabel(c.name || "?"))}${c.kinds.length || c.bosses.length || c.types.length ? "" : ` · <b>${restOf[c.scope]}</b>`}</span></div>
           <details data-i="${i}" ${open.has(i) ? "open" : ""}><summary class="muted small">규칙 고르기 (보스 구분 · 보스 · 전투 종류 중 하나라도 맞으면)</summary>
             ${c.scope !== "battle" ? `<div class="members"><span class="muted small">보스 구분</span> ${kinds.map((k) => ck("cat-kind", i, k, c.kinds.includes(k), KIND_LABEL[k] || k)).join("")}</div>
               <div class="members"><span class="muted small">보스</span> ${bosses.map((b) => ck("cat-boss", i, b.name, c.bosses.includes(b.name), label[b.name] || b.name)).join("")}</div>` : ""}
             ${c.scope !== "boss" ? `<div class="members"><span class="muted small">전투 종류</span> ${BATTLE_TYPES.map((t) => ck("cat-type", i, t, c.types.includes(t), t)).join("")}</div>` : ""}
-          </details></div>`).join("")}
-        <p class="row">${cats.length < CAT_MAX ? `<button id="cat-add">+ 분류 추가</button>` : ""}<button id="cat-save" class="primary">저장</button><button id="cat-reset">기본으로</button>
-          <span class="muted small">${esc(msg || "")}</span></p>`;
+          </details></div>`).join("") || `<p class="muted small">분류 없음</p>`}
+        <div class="row" style="border-top:1px solid var(--line, #ddd);padding:8px 0">
+          <label class="chk"><input type="checkbox" id="cat-rest" ${rest.on ? "checked" : ""}> 맨 끝에 <b>나머지 전부</b> 칸 넣기</label>
+          <input id="cat-rest-name" value="${esc(rest.name)}" maxlength="20" style="width:7em" ${rest.on ? "" : "disabled"}>
+          <span class="muted small">위 분류 어디에도 안 든 보스 · 전투</span></div>
+        <p class="row">${cats.length + (rest.on ? 1 : 0) < CAT_MAX ? `<button id="cat-add">+ 분류 추가</button>` : ""}<button id="cat-save" class="primary">저장</button>
+          ${saved.length ? `<button id="cat-clear">분류 없애기</button>` : ""}
+          <span class="muted small">${esc(msg || (dirty ? "바꾼 것이 있어요 — 저장해야 들어가요" : ""))}</span></p>`;
       const I = (e) => +e.target.dataset.i;
+      const ch = (fn) => (e) => { fn(e); dirty = true; draw(); };
       box.querySelectorAll("details[data-i]").forEach((d) => (d.ontoggle = () => (d.open ? open.add(+d.dataset.i) : open.delete(+d.dataset.i))));
-      box.querySelectorAll(".cat-name").forEach((x) => { x.oninput = (e) => { cats[I(e)].name = e.target.value; }; x.onchange = () => draw(); });
-      box.querySelectorAll(".cat-scope").forEach((x) => (x.onchange = (e) => {
+      box.querySelectorAll(".cat-name").forEach((x) => { x.oninput = (e) => { cats[I(e)].name = e.target.value; dirty = true; }; x.onchange = () => draw(); });
+      box.querySelectorAll(".cat-scope").forEach((x) => (x.onchange = ch((e) => {
         const c = cats[I(e)]; c.scope = e.target.value;
         if (c.scope === "boss") c.types = [];
         if (c.scope === "battle") { c.kinds = []; c.bosses = []; }
-        draw();
-      }));
-      const tog = (cls, key) => box.querySelectorAll(`.${cls}`).forEach((x) => (x.onchange = (e) => {
+      })));
+      const tog = (cls, key) => box.querySelectorAll(`.${cls}`).forEach((x) => (x.onchange = ch((e) => {
         const c = cats[I(e)], v = e.target.value;
         c[key] = e.target.checked ? [...new Set([...c[key], v])] : c[key].filter((y) => y !== v);
-        draw();
-      }));
+      })));
       tog("cat-kind", "kinds"); tog("cat-boss", "bosses"); tog("cat-type", "types");
-      box.querySelectorAll(".cat-up").forEach((x) => (x.onclick = (e) => { const i = I(e); [cats[i - 1], cats[i]] = [cats[i], cats[i - 1]]; open.clear(); draw(); }));
-      box.querySelectorAll(".cat-down").forEach((x) => (x.onclick = (e) => { const i = I(e); [cats[i + 1], cats[i]] = [cats[i], cats[i + 1]]; open.clear(); draw(); }));
-      box.querySelectorAll(".cat-del").forEach((x) => (x.onclick = (e) => { cats.splice(I(e), 1); open.clear(); draw(); }));
+      box.querySelectorAll(".cat-up").forEach((x) => (x.onclick = ch((e) => { const i = I(e); [cats[i - 1], cats[i]] = [cats[i], cats[i - 1]]; open.clear(); })));
+      box.querySelectorAll(".cat-down").forEach((x) => (x.onclick = ch((e) => { const i = I(e); [cats[i + 1], cats[i]] = [cats[i], cats[i + 1]]; open.clear(); })));
+      box.querySelectorAll(".cat-del").forEach((x) => (x.onclick = ch((e) => { cats.splice(I(e), 1); open.clear(); })));
       const add = box.querySelector("#cat-add");
-      if (add) add.onclick = () => { cats.push({ name: `분류${cats.length + 1}`, scope: "any", kinds: [], bosses: [], types: [] }); open.add(cats.length - 1); draw(); };
-      box.querySelector("#cat-reset").onclick = () => saveView({ att_cats: null }, "출석 분류: 기본값");
+      if (add) add.onclick = ch(() => { cats.push({ name: `분류${cats.length + 1}`, scope: "boss", kinds: [], bosses: [], types: [] }); open.add(cats.length - 1); });
+      box.querySelector("#cat-rest").onchange = ch((e) => { rest.on = e.target.checked; });
+      box.querySelector("#cat-rest-name").oninput = (e) => { rest.name = e.target.value; dirty = true; };
+      box.querySelector("#cat-suggest").onclick = () => { split(sug); open.clear(); dirty = true; draw("추천을 채웠어요 — 고친 뒤 저장하세요"); };
+      const clr = box.querySelector("#cat-clear");
+      if (clr) clr.onclick = () => { if (confirm("출석 분류를 모두 없앨까요? (시트엔 보스 · 전투 출석만 남아요)")) saveView({ att_cats: "[]" }, "출석 분류를 없앴어요"); };
       box.querySelector("#cat-save").onclick = () => {
-        const names = cats.map((c) => String(c.name || "").trim());
+        const all = [...cats, ...(rest.on ? [{ name: rest.name, scope: "any", kinds: [], bosses: [], types: [] }] : [])];
+        const names = all.map((c) => String(c.name || "").trim());
         const bad = names.find((n, i) => !n || names.indexOf(n) !== i || CAT_RESERVED.includes(n) || CAT_RESERVED.includes(catLabel(n)));
         if (bad !== undefined) return draw(bad ? `'${bad}' 은(는) 쓸 수 없어요 (이름이 겹치거나 시트 기본 칸 이름)` : "이름이 빈 분류가 있어요");
-        const c = cleanCats(cats);
-        if (!c) return draw("분류가 하나는 있어야 해요");
-        saveView({ att_cats: JSON.stringify(c) }, "출석 분류를 저장했어요 — 시트는 다음 갱신(최대 10분) 때 바뀌어요");
+        const rule = cats.find((c) => isRest(c));
+        if (rule) return draw(`'${rule.name}' 은(는) 범위 '전부' · 규칙 없음이라 나머지 전부와 같아요 — 아래 '나머지 전부' 칸을 쓰거나 규칙을 고르세요`);
+        saveView({ att_cats: JSON.stringify(cleanCats(all)) }, "출석 분류를 저장했어요 — 시트는 다음 갱신(최대 10분) 때 바뀌어요");
       };
     };
     draw();
@@ -1217,7 +1299,7 @@
       <p class="muted">${esc(label)} · 출석 <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 전투 ${nb}) · 전체 ${all.length}회${rows.length > all.length ? ` · 📋 콘텐츠 ${rows.length - all.length}회` : ""}</p>
       <p class="muted small">출석 = 서버 출석 보기에 든 것 · 전체 = 빠진 보스 · 전투까지. '출석 제외'는 기록은 있지만 출석에는 안 세는 거예요.</p>
       <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}${r.category !== "event" && r.counted === false ? ` <span class="badge off">출석 제외</span>` : ""}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
-    catsEditor($("#cats-box"), bosses, stRows[0], label, saveView);
+    catsEditor($("#cats-box"), bosses, stRows[0], label, saveView, anyBattle.length > 0);
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
   }
