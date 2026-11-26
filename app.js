@@ -1469,6 +1469,11 @@
         ${k === "win" ? `<p class="muted small">받은 zip 을 풀어 윈도우 설치 안내대로 해 주세요.</p>`
           : `<p class="muted small">폰에서 받아 열어요. '출처를 알 수 없는 앱'은 설치할 때만 허용하고 끝나면 다시 꺼 주세요. 막히면 모바일 설치 안내를 봐 주세요. 로그인은 디스코드 <code>/벨라봇 인증</code> 코드로 해요 (PC 하나 · 폰 하나까지).</p>`}`;
     }).join("") + (rows && rows.length ? `<p class="muted small">받기 주소는 2분 동안만 열려요. 파일은 남에게 넘기지 마세요.</p>` : "");
+    // PC 어드밴스판(베타용, 모바일은 Lite 하나): 베타 테스터(+ 봇 주인)에게만, 봇 주인이 올린 가장 최근 것 (SQL web_vb_adv)
+    const adv = await q(sb.rpc("web_vb_adv")).catch(() => []);
+    if (adv && adv.length) box.insertAdjacentHTML("beforeend", `<p class="muted small" style="margin-top:12px">🧪 베타 테스터 전용</p>` +
+      adv.map((r) => `<div class="row" style="margin:8px 0"><button data-get="${esc(r.path)}">🧪 PC 어드밴스판 받기 (${esc(buildTag(r.path))})</button>
+          <span class="muted small">${mb(r.size)} · 올린 날 ${fmtDate(r.uploaded_at)} · 시험 기능이 들어 있어요</span></div>`).join(""));
     box.querySelectorAll("[data-get]").forEach((b) => (b.onclick = () => vbFetch(b.dataset.get)));
   }
   // 관리자: 길드원에게 내보낼 빌드를 윈도우 · 모바일 따로 고름. 봇 주인: 빌드 올리기 · 지우기
@@ -1485,7 +1490,8 @@
           ${cur[k] && !of(k).some((b) => b.path === cur[k]) ? `<option value="${esc(cur[k])}" selected>${esc(buildTag(cur[k]))} (파일 없음)</option>` : ""}</select>
         ${cur[k] ? `<button class="ghost small" data-try="${esc(cur[k])}">받아 보기</button>` : ""}</div>`).join("")}
       ${state.botOwner ? `<details><summary><b>⬆️ 빌드 올리기 · 지우기</b> <span class="muted small">(봇 주인만 · 파일 50MB까지)</span></summary>
-        <div class="row"><select id="vb-up-k"><option value="win">🖥️ 윈도우 (VirtualBella-aNN.zip)</option><option value="mobile">📱 모바일 (VBLite-mNN.apk)</option></select>
+        <div class="row"><select id="vb-up-k"><option value="win">🖥️ 윈도우 배포판 (VirtualBella-aNN.zip)</option><option value="mobile">📱 모바일 배포판 (VBLite-mNN.apk)</option>
+            <option value="win-adv">🧪 PC 어드밴스판 (베타만)</option></select>
           <input type="file" id="vb-up-f" accept=".zip,.apk"><button id="vb-up">올리기</button></div>
         <div class="board-list">${list.map((b) => `<div>${esc(b.path)} <span class="muted small">${mb(b.size)} · ${fmtDate(b.uploaded_at)}</span>
           <button class="ghost small" data-del="${esc(b.path)}">지우기</button></div>`).join("") || `<p class="muted small">올린 빌드 없음</p>`}</div></details>` : ""}`;
@@ -1499,14 +1505,15 @@
     if (up) up.onclick = async () => {
       const k = box.querySelector("#vb-up-k").value, f = box.querySelector("#vb-up-f").files[0];
       if (!f) return toast("파일을 골라 주세요", "red");
-      const ext = k === "win" ? ".zip" : ".apk";
-      if (!f.name.toLowerCase().endsWith(ext)) return toast(`${PLAT[k][1]}은(는) ${ext} 파일이에요`, "red");
+      const isWin = k.startsWith("win"), ext = isWin ? ".zip" : ".apk";
+      if (!f.name.toLowerCase().endsWith(ext)) return toast(`${isWin ? "윈도우" : "모바일"}은(는) ${ext} 파일이에요`, "red");
       if (!/^[\w.\-]+$/.test(f.name)) return toast("파일 이름은 영문 · 숫자 · - . _ 만 (예: VBLite-m15.apk)", "red");
       up.disabled = true; up.textContent = "올리는 중…";
       const { error } = await sb.storage.from(VB_BUCKET).upload(`${k}/${f.name}`, f,
-        { upsert: false, contentType: k === "win" ? "application/zip" : "application/vnd.android.package-archive" });
+        { upsert: false, contentType: isWin ? "application/zip" : "application/vnd.android.package-archive" });
       if (error) { up.disabled = false; up.textContent = "올리기"; return toast(`올리기 실패: ${error.message}`, "red"); }
-      toast(`${f.name} 올렸어요 — 위에서 골라야 길드원에게 보여요`); vbBuilds(box, st, after);
+      toast(k.endsWith("-adv") ? `${f.name} 올렸어요 — 베타 테스터에게 가장 최근 어드밴스판으로 바로 보여요` : `${f.name} 올렸어요 — 위에서 골라야 길드원에게 보여요`);
+      vbBuilds(box, st, after); after();
     };
     box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm(`${b.dataset.del} 을(를) 지울까요? 이 빌드를 고른 서버는 받기가 안 보여요.`)) return;
