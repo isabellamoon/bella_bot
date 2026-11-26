@@ -467,7 +467,7 @@
       }
       busy = false;
       me(okLabel);
-      bubble(md(run.flow.target === "suggest" ? run.flow.done : `바꿨어요! ${run.flow.done || ""}`));
+      bubble(md(run.flow.target === "suggest" ? run.flow.done : `저장했어요.${run.flow.done ? " " + run.flow.done : ""}`));
       if (run.flow.target !== "suggest") w.toast(`설정 도우미: ${run.flow.title} 저장했어요`);   // 문의하기는 채팅 답만 (두 번 안 보이게)
       if (["settings", "attendance", "vbella"].includes(w.state.tab)) w.render();
       menu(run.flow.target === "suggest" ? "더 도와드릴 게 있나요?" : "더 바꿀 게 있나요?");

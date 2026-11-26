@@ -2,6 +2,7 @@
 // 화면 · 저장 코드가 없는 순수 데이터라 나중에 디스코드(버튼 · 모달) · 카톡 봇도 같은 목록을 읽어 같은 흐름을 돌릴 수 있다.
 //
 // 흐름(flow) = { title, tab(자세히 고치는 웹 탭), load(읽을 boss_settings 칸), done(적용 뒤 한마디), target?, steps[] }
+// 층 구분(docs/OWNERS.md): 도우미는 프론트 — 서버(표 · SQL 함수)로만 읽고 쓰고, 끝말은 '저장했어요 · 보냈어요'(자기 일)만. 디스코드 · 시트에 언제 어떻게 보이는지는 말하지 않음
 //   target 'suggest' = 문의하기: {kind, body} 를 bellaSendSuggestion 으로 보냄 (설정 아님). member = 길드원도 씀
 //   target 'att_score' = 평점 JSON 을 mode · cat · boss · battle 로 풀어 묻고, 저장은 SQL web_set_att_score 로만 (boss_settings 직접 저장 아님)
 // 메뉴 needs = 그 저장 함수가 페이지에 있을 때만 열림
@@ -49,7 +50,7 @@ window.SETUP_FLOWS = {
     att_view: {
       title: "출석 보기", tab: "attendance",
       load: ["att_boss_view", "att_battle_view", "att_farm", "att_war_off", "att_practice"],
-      done: "웹 출석 · 디스코드 /참여통계 · /내참여 · 구글 시트가 같이 바뀌어요. 기록은 그대로고 세는 범위만 바뀌어요.",
+      done: "기록은 그대로고, 세는 범위만 바뀌어요.",
       steps: [
         { id: "boss", type: "choice", ask: "보스 출석은 어떻게 셀까요?",
           cur: { field: "att_boss_view", map: { farmers: "🌾 파머스", warfare: "⚔️ 워페어" }, def: "warfare" },
@@ -85,7 +86,7 @@ window.SETUP_FLOWS = {
     att_cats: {
       title: "출석 분류", tab: "attendance",
       load: ["att_cats"],
-      done: "구글 시트 '요약' · '주간 순위'는 다음 갱신(최대 10분) 때 바뀌어요.",
+      done: "",
       steps: [
         { id: "how", type: "choice",
           ask: "출석 분류는 시트 '요약' 보기 칸 · '주간 순위' 기준이에요. 어떻게 할까요?\n추천: $cat_suggest",
@@ -108,7 +109,7 @@ window.SETUP_FLOWS = {
     cp: {
       title: "출석 구간 · 마일스톤", tab: "settings",
       load: ["cp_start", "cp_days", "ms_days"],
-      done: "출석 탭 · 시트의 구간이 새 기준으로 나뉘어요. 지난 기록은 그대로예요.",
+      done: "지난 기록은 그대로예요.",
       steps: [
         { id: "mode", type: "choice", ask: "출석 구간(체크포인트)을 시작일부터 N일마다 자동으로 나눠요. 무엇을 할까요?",
           cur: { field: "cp_start", fmt: "cp" },
@@ -147,7 +148,7 @@ window.SETUP_FLOWS = {
     board: {
       title: "관리판 보드", tab: "settings",
       load: ["panel_board"],
-      done: "디스코드 관리판 보드가 15초 안에 바뀌어요. [⭐ 보드 편집] · [📂 전체 기능] · [🌐 웹 관리]는 늘 마지막 줄에 있어요.",
+      done: "",
       steps: [
         { id: "how", type: "choice", ask: "디스코드 관리판에 보일 버튼(최대 10개)을 어떻게 할까요?",
           cur: { field: "panel_board", fmt: "board" },
@@ -171,7 +172,7 @@ window.SETUP_FLOWS = {
     score: {
       title: "평점", tab: "attendance", target: "att_score",
       load: ["att_score", "att_cats"],
-      done: "구글 시트 '주간 순위' 평점은 다음 갱신(최대 10분) 때 바뀌어요. 출석 기록은 그대로예요.",
+      done: "출석 기록은 그대로예요.",
       steps: [
         { id: "mode", type: "choice", ask: "평점 = 주간 순위 **출석 × 점수** 합이에요. 점수를 어떻게 매길까요?\n비운 칸은 1점이라, 다 비우면 출석 횟수 합과 같아요.",
           cur: { field: "mode", map: { cat: "분류별", item: "보스 · 전투 종류별" }, def: "cat" },
@@ -199,7 +200,7 @@ window.SETUP_FLOWS = {
       title: "문의하기", target: "suggest", member: true,
       load: [],
       sumTitle: "이렇게 보낼게요", sumNote: "봇 주인에게만 보여요", applyLabel: "📨 보내기", applyHint: "[보내기] 를 눌러야 보내져요.",
-      done: "보냈어요! 봇 주인에게만 보이고, 확인하면 반영할게요.",
+      done: "보냈어요! 봇 주인에게만 보여요.",
       steps: [
         { id: "kind", type: "choice", ask: "어떤 이야기인가요?", field: "kind", sum: "종류",
           options: [
@@ -216,7 +217,7 @@ window.SETUP_FLOWS = {
     app: {
       title: "앱 받기", tab: "vbella",
       load: ["vb_win_build", "vb_mobile_build", "vb_member_download_win", "vb_member_download_mobile"],
-      done: "길드원 웹 '버추얼 벨라' 탭의 앱 받기가 바로 바뀌어요. 관리자는 권한과 상관없이 받을 수 있어요.",
+      done: "",
       steps: [
         { id: "plat", type: "choice", ask: "어느 앱을 정할까요?",
           options: [
