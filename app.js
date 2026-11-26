@@ -1136,6 +1136,8 @@
     return await q(sb.rpc("web_set_att_score", { gid: G(), cfg }));
   }
   window.bellaSaveAttScore = saveAttScore;
+  // 설정 도우미 '📨 문의하기': /건의하기 와 같은 표 (SQL web_suggest — 길드원만 · 1~1500자 · 1분 1번 · 하루 10번). 새 건의 id, 실패하면 throw(한글 메시지)
+  window.bellaSendSuggestion = ({ kind, body }) => q(sb.rpc("web_suggest", { gid: G(), kind, body }));
   function scoreEditor(box, bosses, st, label) {
     const saved = cleanScore(st?.att_score);
     const cur = JSON.parse(JSON.stringify(saved));
