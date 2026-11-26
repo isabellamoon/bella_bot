@@ -855,7 +855,7 @@
     const [raids, bosses, stRows, anyBattle] = await Promise.all([
       q(sb.from("raids").select("id::text,boss,killed_at,category,battle_type,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
       q(sb.from("bosses").select("name,display,kind").eq("guild_id", G()).order("name")),
-      q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats,att_score").eq("guild_id", G())),
       q(sb.from("raids").select("id").eq("guild_id", G()).eq("category", "battle").limit(1)),   // 출석 분류 추천: 전투 기록이 있는지
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
@@ -927,6 +927,7 @@
           : `<p class="muted small">🛡️ 베이직: 전투 ${BATTLE_TYPES.join(" · ")} 전부 들어가요.</p>`}
       </div>
       <div class="card" id="cats-box"></div>
+      <div class="card" id="score-box"></div>
       <div class="card">
         <div class="row"><h2 style="margin:0">출석 <span class="muted small">${BOSS_VIEWS[av.boss_view]} + ${BATTLE_VIEWS[av.battle_view]}</span></h2>
           <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
@@ -973,6 +974,7 @@
     const fr = $("#farm-reset"); if (fr) fr.onclick = () => saveView({ att_farm: null }, "파머스: 기본(인터보스 5종)");
     const wr = $("#war-reset"); if (wr) wr.onclick = () => saveView({ att_war_off: null }, "워페어: 전체 보스");
     catsEditor($("#cats-box"), bosses, stRows[0], label, saveView, anyBattle.length > 0);
+    scoreEditor($("#score-box"), bosses, stRows[0], label);
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
     v.querySelectorAll("details[data-raid]").forEach((d) => {
@@ -1113,6 +1115,64 @@
         const rule = cats.find((c) => isRest(c));
         if (rule) return draw(`'${rule.name}' 은(는) 범위 '전부' · 규칙 없음이라 나머지 전부와 같아요 — 아래 '나머지 전부' 칸을 쓰거나 규칙을 고르세요`);
         saveView({ att_cats: JSON.stringify(cleanCats(all)) }, "출석 분류를 저장했어요 — 시트는 다음 갱신(최대 10분) 때 바뀌어요");
+      };
+    };
+    draw();
+  }
+
+  // 평점 (봇 att_view.clean_score · score_of 와 같은 규칙) — 구글 시트 '주간 순위' 평점. 저장은 SQL web_set_att_score(서버에서 숫자 범위 검사)
+  //   mode 'cat' = 분류마다 점수 (분류 없으면 '보스' · '전투') · 'item' = 보스 · 전투 종류마다 점수. 비운 칸 = 1점 → 처음엔 출석 합과 같음
+  const SCORE_MIN = 0, SCORE_MAX = 100;
+  function cleanScore(v) {
+    if (typeof v === "string") { try { v = JSON.parse(v); } catch { v = null; } }
+    v = v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    const nums = (d) => Object.fromEntries(Object.entries(d && typeof d === "object" ? d : {})
+      .filter(([k, x]) => typeof x === "number" && x >= SCORE_MIN && x <= SCORE_MAX && String(k).length <= 60)
+      .map(([k, x]) => [String(k), Math.round(x * 100) / 100]).slice(0, 300));
+    return { mode: v.mode === "item" ? "item" : "cat", cat: nums(v.cat), boss: nums(v.boss), battle: nums(v.battle) };
+  }
+  // 다른 화면(설정 도우미 등)에서도 부르는 저장 함수: cfg = {mode, cat, boss, battle} → 정리된 값 (실패하면 throw)
+  async function saveAttScore(cfg) {
+    return await q(sb.rpc("web_set_att_score", { gid: G(), cfg }));
+  }
+  window.bellaSaveAttScore = saveAttScore;
+  function scoreEditor(box, bosses, st, label) {
+    const saved = cleanScore(st?.att_score);
+    const cur = JSON.parse(JSON.stringify(saved));
+    const cats = cleanCats(st?.att_cats) || [];
+    const boxes = cats.length ? cats.map((c) => c.name) : ["보스", "전투"];
+    const inp = (part, key) => `<label class="chk" style="min-width:12em">${esc(part === "boss" ? (label[key] || key) : key)}
+        <input type="number" class="sc-in" data-part="${part}" data-key="${esc(key)}" min="${SCORE_MIN}" max="${SCORE_MAX}" step="0.5"
+          placeholder="1" value="${cur[part][key] ?? ""}" style="width:5em"> 점</label>`;
+    const draw = (msg) => {
+      box.innerHTML = `<h2>⭐ 평점 <span class="muted small">(구글 시트 '주간 순위' 평점 · 길드 전체)</span></h2>
+        <p class="muted small">평점 = 주간 순위에서 체크한 칸의 <b>출석 × 점수</b> 합. 비운 칸은 1점이라, 다 비우면 출석 횟수 합과 같아요. 점수는 0~100 숫자만.</p>
+        <div class="row"><b>점수 방식</b>
+          <button data-mode="cat" class="${cur.mode === "cat" ? "primary" : ""}">분류별</button>
+          <button data-mode="item" class="${cur.mode === "item" ? "primary" : ""}">보스 · 전투 종류별</button></div>
+        ${cur.mode === "cat"
+          ? `<p class="muted small">${cats.length ? "출석 분류마다 한 출석의 점수." : "출석 분류가 없어서 보스 · 전투 두 칸이에요."}</p>
+             <div class="members">${boxes.map((n) => inp("cat", n)).join("")}</div>`
+          : `<p class="muted small">기록 한 줄(보스 한 번 · 전투 한 번)마다 점수. 분류는 주간 순위 체크박스로 고른 칸만 더해요.</p>
+             <div class="members"><span class="muted small">보스</span> ${bosses.map((b) => inp("boss", b.name)).join("")}</div>
+             <div class="members"><span class="muted small">전투</span> ${BATTLE_TYPES.map((t) => inp("battle", t)).join("")}</div>`}
+        <p class="row"><button id="sc-save" class="primary">저장</button><button id="sc-reset">전부 1점으로</button>
+          <span class="muted small">${esc(msg || "")}</span></p>`;
+      box.querySelectorAll("[data-mode]").forEach((b) => (b.onclick = () => { cur.mode = b.dataset.mode; draw("바꾼 것이 있어요 — 저장해야 들어가요"); }));
+      box.querySelectorAll(".sc-in").forEach((x) => (x.onchange = () => {
+        const v = x.value.trim(), part = x.dataset.part, key = x.dataset.key;
+        if (v === "") delete cur[part][key]; else cur[part][key] = Number(v);
+      }));
+      box.querySelector("#sc-reset").onclick = async () => {
+        if (!confirm("평점을 전부 1점으로 되돌릴까요?")) return;
+        try { await saveAttScore({ mode: cur.mode, cat: {}, boss: {}, battle: {} }); toast("평점: 전부 1점"); render(); }
+        catch (e) { draw(`저장 못 했어요: ${e.message || e}`); }
+      };
+      box.querySelector("#sc-save").onclick = async () => {
+        const bad = ["cat", "boss", "battle"].flatMap((p) => Object.entries(cur[p])).find(([, x]) => !Number.isFinite(x) || x < SCORE_MIN || x > SCORE_MAX);
+        if (bad) return draw(`'${bad[0]}' 점수는 ${SCORE_MIN}~${SCORE_MAX} 숫자만`);
+        try { await saveAttScore(cur); toast("평점을 저장했어요 — 시트는 다음 갱신(최대 10분) 때 바뀌어요"); render(); }
+        catch (e) { draw(`저장 못 했어요: ${e.message || e}`); }
       };
     };
     draw();
@@ -1439,5 +1499,7 @@
   const MEMBER_TABS = { bosses: memberBoardTab, attendance: memberAttendanceTab, vbella: memberVbellaTab };
 
   const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab, vbella: vbellaTab };
+  // 설정 도우미(setup-helper.js)가 각 카드와 같은 함수 · 상수로 읽고 저장하게 빌려줌
+  window.BELLA_WEB = { sb, q, G, state, toast, render, kstParts, fmtDate, suggestCats, cleanCats, BATTLE_TYPES, FARM_DEFAULT, FB_GROUPS, FB_REC, FB_MAX, buildTag, mb };
   start();
 })();
