@@ -476,7 +476,7 @@
         <h2>✒️ 버추얼 벨라 (게임 화면 위 도우미 앱)</h2>
         <p class="muted">보스 컷 · 출현 예고 · 현황판 스캔 · 참여자 확인 · 뿔피리를 게임 화면 위에서 바로 해요.</p>
         <ul class="vb-steps">
-          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) 받기 · 백신 예외 · 되돌리기</li>
+          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>윈도우 설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) 받기 · 백신 예외 · 되돌리기</li>
           <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력 · 끊기 <code>/벨라연결해제</code></li>
           <li><b>화이트리스트</b> — <code>/화이트 닉네임</code> · <code>/화이트목록</code> · <code>/화이트삭제</code> (나만 보여요)</li>
           <li><b>게임 닉네임 등록</b> — <code>/닉등록 게임닉</code> (참여자 확인 때 디스코드와 맞추는 데 써요)</li>
@@ -496,8 +496,9 @@
       <div class="card" id="vb-builds"></div>
       <div class="card"><h2>⬇️ 앱 받기</h2><div id="vb-dl"></div></div>
       <div class="card"><h2>데스노트 · 화이트리스트</h2><div id="vb-lists"></div></div>`;
-    vbDownload($("#vb-dl"));
-    vbBuilds($("#vb-builds"), s, () => vbDownload($("#vb-dl")));
+    const adminPm = { download_win: true, download_mobile: true };     // 관리자는 늘 받을 수 있음
+    vbDownload($("#vb-dl"), adminPm);
+    vbBuilds($("#vb-builds"), s, () => vbDownload($("#vb-dl"), adminPm));
     $("#vb-save").onclick = async () => {
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), virtual_bella: $("#vb-on").checked ? 1 : 0,
@@ -1313,12 +1314,11 @@
         <h2>✒️ 버추얼 벨라 (게임 화면 위 도우미 앱)</h2>
         ${pm.on ? "" : `<p style="color:var(--warn)">이 서버는 아직 버추얼 벨라를 켜지 않았어요. 관리자에게 물어보세요.</p>`}
         <ul class="vb-steps">
-          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) · 백신 예외 · 되돌리기</li>
+          <li><a href="vb-install.html" target="_blank" rel="noopener"><b>윈도우 설치 안내</b></a> — 폴더 준비 · 신뢰 등록 파일(bella_cert) · 백신 예외 · 되돌리기</li>
           <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력</li>
           <li><b>게임 닉네임 등록</b> — 디스코드에서 <code>/닉등록 게임닉</code></li>
         </ul>
-        <div id="vb-dl">${pm.download_win || pm.download_mobile ? `<p class="muted small">받기 파일 확인 중…</p>`
-          : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
+        <div id="vb-dl"><p class="muted small">받기 파일 확인 중…</p></div>
       </div>
       <div class="card"><h2>☠️ 내가 등록한 데스노트</h2>
         <p class="muted small">잘못 등록한 이름은 [제외 신청]을 누르면 운영진이 확인하고 빼 줘요.</p>
@@ -1330,7 +1330,7 @@
           <div class="row"><input id="w-new" placeholder="게임 닉네임"><button id="w-add">넣기</button></div>`
           : `<p class="muted small">🔒 이 서버는 관리자만 화이트리스트를 등록할 수 있어요.</p>`}
       </div>`;
-    if (pm.download_win || pm.download_mobile) vbDownload($("#vb-dl"));
+    vbDownload($("#vb-dl"), pm);
     myNotes($("#my-notes"));
     const add = $("#w-add");
     if (add) add.onclick = async () => {
@@ -1354,18 +1354,26 @@
     if (error || !data?.signedUrl) { toast(`받기 실패: ${error?.message || "권한이 없어요"}`, "red"); return; }
     location.href = data.signedUrl;
   }
-  async function vbDownload(box) {
+  // 플랫폼마다 한 줄: 🔒 권한 없음 / 아직 안 내보냄 / 받기 버튼 (한쪽만 될 때도 다른 쪽 상태가 보이게). pm = 내 받기 권한
+  async function vbDownload(box, pm) {
     if (!box) return;
-    const rows = await q(sb.rpc("web_vb_download", { gid: G() })).catch(() => []);
-    const by = Object.fromEntries(rows.map((r) => [r.platform, r]));
-    box.innerHTML = rows.length ? Object.keys(PLAT).filter((k) => by[k]).map((k) => {
-      const r = by[k], [ic, nm, os] = PLAT[k];
+    let rows;
+    try { rows = await q(sb.rpc("web_vb_download", { gid: G() })); }
+    catch { box.innerHTML = `<p class="muted small">⚠️ 앱 받기 정보를 불러오지 못했어요. 새로고침해 주세요.</p>`; return; }
+    const by = Object.fromEntries((rows || []).map((r) => [r.platform, r]));
+    const guide = { win: `<a href="vb-install.html" target="_blank" rel="noopener">윈도우 설치 안내</a>`,
+                    mobile: `<a href="vb-install-mobile.html" target="_blank" rel="noopener">모바일 설치 안내</a>` };
+    box.innerHTML = Object.entries(PLAT).map(([k, [ic, nm, os]]) => {
+      const r = by[k];
+      if (!pm?.["download_" + k]) return `<div class="row" style="margin:8px 0"><b>${ic} ${nm}</b>
+          <span class="muted small">🔒 받기 권한이 없어요 — 관리자에게 받기 권한을 켜 달라고 해 주세요.</span></div>`;
+      if (!r) return `<div class="row" style="margin:8px 0"><b>${ic} ${nm}</b>
+          <span class="muted small">아직 이 서버에 내보낸 ${nm}이 없어요.</span></div>`;
       return `<div class="row" style="margin:8px 0"><button class="primary" data-get="${esc(r.path)}">${ic} ${nm} 받기 (${esc(buildTag(r.path))})</button>
-          <span class="muted small">${os} · ${mb(r.size)} · 올린 날 ${fmtDate(r.uploaded_at)}</span></div>
-        ${k === "win" ? `<p class="muted small">받은 zip 을 풀어 <a href="vb-install.html" target="_blank" rel="noopener">설치 안내</a>대로 해 주세요.</p>`
-          : `<p class="muted small">폰에서 받아 열고, '출처를 알 수 없는 앱' 설치를 이번만 허용해 주세요. 로그인은 디스코드 <code>/벨라봇 인증</code> 코드로 해요 (PC 하나 · 폰 하나까지).</p>`}`;
-    }).join("") + `<p class="muted small">받기 주소는 2분 동안만 열려요. 파일은 남에게 넘기지 마세요.</p>`
-      : `<p class="muted small">아직 이 서버에 내보낸 앱이 없어요. 관리자에게 물어보세요.</p>`;
+          <span class="muted small">${os} · ${mb(r.size)} · 올린 날 ${fmtDate(r.uploaded_at)} · ${guide[k]}</span></div>
+        ${k === "win" ? `<p class="muted small">받은 zip 을 풀어 윈도우 설치 안내대로 해 주세요.</p>`
+          : `<p class="muted small">폰에서 받아 열어요. '출처를 알 수 없는 앱'은 설치할 때만 허용하고 끝나면 다시 꺼 주세요. 막히면 모바일 설치 안내를 봐 주세요. 로그인은 디스코드 <code>/벨라봇 인증</code> 코드로 해요 (PC 하나 · 폰 하나까지).</p>`}`;
+    }).join("") + (rows && rows.length ? `<p class="muted small">받기 주소는 2분 동안만 열려요. 파일은 남에게 넘기지 마세요.</p>` : "");
     box.querySelectorAll("[data-get]").forEach((b) => (b.onclick = () => vbFetch(b.dataset.get)));
   }
   // 관리자: 길드원에게 내보낼 빌드를 윈도우 · 모바일 따로 고름. 봇 주인: 빌드 올리기 · 지우기
