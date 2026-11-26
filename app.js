@@ -467,10 +467,10 @@
 
   // ---------- 버추얼 벨라 탭: 안내 · 설정(켜기 · 길드원 권한) · 데스노트 · 화이트리스트 ----------
   async function vbellaTab(v) {
-    const rows = await q(sb.from("boss_settings").select("virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally").eq("guild_id", G()));
+    const rows = await q(sb.from("boss_settings").select("virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download_win,vb_member_download_mobile,vb_member_rally,vb_win_build,vb_mobile_build").eq("guild_id", G()));
     const s = rows[0] || {};
     const PERMS = [["white", "화이트리스트 등록 · 삭제 (본인 것만)", 1], ["note", "데스노트 등록", 1], ["board", "보스 현황판 갱신 (앱 스캔 · 스샷)", 1],
-                   ["download", "버추얼 벨라 받기 (웹)", 0], ["rally", "뿔피리 (앱 전체에 용사집결)", 0]];
+                   ["download_win", "🖥️ 윈도우 앱 받기 (웹)", 0], ["download_mobile", "📱 모바일 앱 받기 (웹)", 0], ["rally", "뿔피리 (앱 전체에 용사집결)", 0]];
     v.innerHTML = `
       <div class="card">
         <h2>✒️ 버추얼 벨라 (게임 화면 위 도우미 앱)</h2>
@@ -493,10 +493,11 @@
         <p class="muted small">데스노트 삭제 · 참여자 확인은 항상 관리자만이에요.</p>
         <p><button class="primary" id="vb-save">저장</button></p>
       </div>
-      <div class="card"><h2>⬇️ 앱 받기</h2><div id="vb-dl"></div>
-        <p class="muted small">새 버전은 봇이 💾 백업 드라이브(없으면 구글 시트 계정)에 올려요. 길드원도 받게 하려면 위 길드원 권한에서 '버추얼 벨라 받기'를 켜 주세요.</p></div>
+      <div class="card" id="vb-builds"></div>
+      <div class="card"><h2>⬇️ 앱 받기</h2><div id="vb-dl"></div></div>
       <div class="card"><h2>데스노트 · 화이트리스트</h2><div id="vb-lists"></div></div>`;
     vbDownload($("#vb-dl"));
+    vbBuilds($("#vb-builds"), s, () => vbDownload($("#vb-dl")));
     $("#vb-save").onclick = async () => {
       await q(sb.from("boss_settings").upsert({
         guild_id: G(), virtual_bella: $("#vb-on").checked ? 1 : 0,
@@ -1300,7 +1301,6 @@
       <p class="muted">${esc(label)} · 출석 <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 전투 ${nb}) · 전체 ${all.length}회${rows.length > all.length ? ` · 📋 콘텐츠 ${rows.length - all.length}회` : ""}</p>
       <p class="muted small">출석 = 서버 출석 보기에 든 것 · 전체 = 빠진 보스 · 전투까지. '출석 제외'는 기록은 있지만 출석에는 안 세는 거예요.</p>
       <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}${r.category !== "event" && r.counted === false ? ` <span class="badge off">출석 제외</span>` : ""}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
-    catsEditor($("#cats-box"), bosses, stRows[0], label, saveView, anyBattle.length > 0);
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
   }
@@ -1317,7 +1317,7 @@
           <li><b>로그인</b> — 디스코드에서 <code>/벨라봇 인증</code> → 받은 코드를 앱 로그인 화면에 입력</li>
           <li><b>게임 닉네임 등록</b> — 디스코드에서 <code>/닉등록 게임닉</code></li>
         </ul>
-        <div id="vb-dl">${pm.download ? `<p class="muted small">받기 파일 확인 중…</p>`
+        <div id="vb-dl">${pm.download_win || pm.download_mobile ? `<p class="muted small">받기 파일 확인 중…</p>`
           : `<p class="muted small">🔒 이 서버는 관리자만 앱 파일을 받을 수 있어요. 관리자에게 받아 주세요.</p>`}</div>
       </div>
       <div class="card"><h2>☠️ 내가 등록한 데스노트</h2>
@@ -1330,7 +1330,7 @@
           <div class="row"><input id="w-new" placeholder="게임 닉네임"><button id="w-add">넣기</button></div>`
           : `<p class="muted small">🔒 이 서버는 관리자만 화이트리스트를 등록할 수 있어요.</p>`}
       </div>`;
-    if (pm.download) vbDownload($("#vb-dl"));
+    if (pm.download_win || pm.download_mobile) vbDownload($("#vb-dl"));
     myNotes($("#my-notes"));
     const add = $("#w-add");
     if (add) add.onclick = async () => {
@@ -1342,14 +1342,75 @@
     }));
   }
 
-  // [버추얼 벨라 받기]: 권한 있으면 드라이브 링크 (봇이 새 버전을 올리면 링크도 바뀜)
+  // ---------- 버추얼 벨라 앱 받기 (윈도우 · 모바일) ----------
+  // 파일은 Supabase Storage 비공개 버킷 'vb-builds' (공개 주소 없음). 받기 = 로그인 + 권한 → 2분짜리 서명 주소로 바로 내려받음.
+  const VB_BUCKET = "vb-builds";
+  const PLAT = { win: ["🖥️", "윈도우 앱", "Windows 10 · 11 (zip)"], mobile: ["📱", "모바일 앱", "안드로이드 10 이상 (apk)"] };
+  const buildTag = (path) => (path.match(/-((?:test-)?[am]\d+)\./) || [])[1] || path.split("/").pop();
+  const mb = (n) => `${(n / 1048576).toFixed(1)}MB`;
+  async function vbFetch(path) {
+    const name = path.split("/").pop();
+    const { data, error } = await sb.storage.from(VB_BUCKET).createSignedUrl(path, 120, { download: name });
+    if (error || !data?.signedUrl) { toast(`받기 실패: ${error?.message || "권한이 없어요"}`, "red"); return; }
+    location.href = data.signedUrl;
+  }
   async function vbDownload(box) {
     if (!box) return;
-    const r = (await q(sb.rpc("web_vb_download", { gid: G() })))[0];
-    box.innerHTML = r
-      ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener"><button class="primary">⬇️ 버추얼 벨라 받기 (${esc(r.version)})</button></a></p>
-         <p class="muted small">올린 날: ${fmtDate(r.uploaded_at)} · 받은 zip 을 풀어 설치 안내대로 해 주세요. 링크는 남에게 공유하지 마세요.</p>`
-      : `<p class="muted small">아직 올라온 파일이 없어요. 관리자에게 받아 주세요.</p>`;
+    const rows = await q(sb.rpc("web_vb_download", { gid: G() })).catch(() => []);
+    const by = Object.fromEntries(rows.map((r) => [r.platform, r]));
+    box.innerHTML = rows.length ? Object.keys(PLAT).filter((k) => by[k]).map((k) => {
+      const r = by[k], [ic, nm, os] = PLAT[k];
+      return `<div class="row" style="margin:8px 0"><button class="primary" data-get="${esc(r.path)}">${ic} ${nm} 받기 (${esc(buildTag(r.path))})</button>
+          <span class="muted small">${os} · ${mb(r.size)} · 올린 날 ${fmtDate(r.uploaded_at)}</span></div>
+        ${k === "win" ? `<p class="muted small">받은 zip 을 풀어 <a href="vb-install.html" target="_blank" rel="noopener">설치 안내</a>대로 해 주세요.</p>`
+          : `<p class="muted small">폰에서 받아 열고, '출처를 알 수 없는 앱' 설치를 이번만 허용해 주세요. 로그인은 디스코드 <code>/벨라봇 인증</code> 코드로 해요 (PC 하나 · 폰 하나까지).</p>`}`;
+    }).join("") + `<p class="muted small">받기 주소는 2분 동안만 열려요. 파일은 남에게 넘기지 마세요.</p>`
+      : `<p class="muted small">아직 이 서버에 내보낸 앱이 없어요. 관리자에게 물어보세요.</p>`;
+    box.querySelectorAll("[data-get]").forEach((b) => (b.onclick = () => vbFetch(b.dataset.get)));
+  }
+  // 관리자: 길드원에게 내보낼 빌드를 윈도우 · 모바일 따로 고름. 봇 주인: 빌드 올리기 · 지우기
+  async function vbBuilds(box, st, after) {
+    if (!box) return;
+    const list = await q(sb.rpc("web_vb_builds", { gid: G() })).catch(() => []);
+    const of = (k) => list.filter((b) => b.path.startsWith(k + "/"));
+    const cur = { win: st.vb_win_build || "", mobile: st.vb_mobile_build || "" };
+    box.innerHTML = `<h2>📦 길드원에게 내보낼 앱</h2>
+      <p class="muted small">고른 빌드만 길드원에게 보여요 (위 길드원 권한에서 윈도우 · 모바일 받기를 켠 경우). 관리자는 권한과 상관없이 받을 수 있어요.</p>
+      ${Object.entries(PLAT).map(([k, [ic, nm]]) => `<div class="row"><b>${ic} ${nm}</b>
+        <select class="vb-pick" data-k="${k}"><option value="">내보내지 않음</option>
+          ${of(k).map((b) => `<option value="${esc(b.path)}" ${b.path === cur[k] ? "selected" : ""}>${esc(buildTag(b.path))} · ${mb(b.size)} · ${fmtDate(b.uploaded_at)}</option>`).join("")}
+          ${cur[k] && !of(k).some((b) => b.path === cur[k]) ? `<option value="${esc(cur[k])}" selected>${esc(buildTag(cur[k]))} (파일 없음)</option>` : ""}</select>
+        ${cur[k] ? `<button class="ghost small" data-try="${esc(cur[k])}">받아 보기</button>` : ""}</div>`).join("")}
+      ${state.botOwner ? `<details><summary><b>⬆️ 빌드 올리기 · 지우기</b> <span class="muted small">(봇 주인만 · 파일 50MB까지)</span></summary>
+        <div class="row"><select id="vb-up-k"><option value="win">🖥️ 윈도우 (VirtualBella-aNN.zip)</option><option value="mobile">📱 모바일 (VBLite-mNN.apk)</option></select>
+          <input type="file" id="vb-up-f" accept=".zip,.apk"><button id="vb-up">올리기</button></div>
+        <div class="board-list">${list.map((b) => `<div>${esc(b.path)} <span class="muted small">${mb(b.size)} · ${fmtDate(b.uploaded_at)}</span>
+          <button class="ghost small" data-del="${esc(b.path)}">지우기</button></div>`).join("") || `<p class="muted small">올린 빌드 없음</p>`}</div></details>` : ""}`;
+    box.querySelectorAll(".vb-pick").forEach((x) => (x.onchange = async () => {
+      await q(sb.from("boss_settings").upsert({ guild_id: G(), [x.dataset.k === "win" ? "vb_win_build" : "vb_mobile_build"]: x.value || null }, { onConflict: "guild_id" }));
+      st[x.dataset.k === "win" ? "vb_win_build" : "vb_mobile_build"] = x.value || null;
+      toast(`${PLAT[x.dataset.k][1]}: ${x.value ? buildTag(x.value) : "내보내지 않음"}`); vbBuilds(box, st, after); after();
+    }));
+    box.querySelectorAll("[data-try]").forEach((b) => (b.onclick = () => vbFetch(b.dataset.try)));
+    const up = box.querySelector("#vb-up");
+    if (up) up.onclick = async () => {
+      const k = box.querySelector("#vb-up-k").value, f = box.querySelector("#vb-up-f").files[0];
+      if (!f) return toast("파일을 골라 주세요", "red");
+      const ext = k === "win" ? ".zip" : ".apk";
+      if (!f.name.toLowerCase().endsWith(ext)) return toast(`${PLAT[k][1]}은(는) ${ext} 파일이에요`, "red");
+      if (!/^[\w.\-]+$/.test(f.name)) return toast("파일 이름은 영문 · 숫자 · - . _ 만 (예: VBLite-m15.apk)", "red");
+      up.disabled = true; up.textContent = "올리는 중…";
+      const { error } = await sb.storage.from(VB_BUCKET).upload(`${k}/${f.name}`, f,
+        { upsert: false, contentType: k === "win" ? "application/zip" : "application/vnd.android.package-archive" });
+      if (error) { up.disabled = false; up.textContent = "올리기"; return toast(`올리기 실패: ${error.message}`, "red"); }
+      toast(`${f.name} 올렸어요 — 위에서 골라야 길드원에게 보여요`); vbBuilds(box, st, after);
+    };
+    box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+      if (!confirm(`${b.dataset.del} 을(를) 지울까요? 이 빌드를 고른 서버는 받기가 안 보여요.`)) return;
+      const { error } = await sb.storage.from(VB_BUCKET).remove([b.dataset.del]);
+      if (error) return toast(`지우기 실패: ${error.message}`, "red");
+      toast("지웠어요"); vbBuilds(box, st, after); after();
+    }));
   }
 
   async function myNotes(box) {
