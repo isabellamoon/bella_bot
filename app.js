@@ -415,7 +415,7 @@
       ["cleanup", "🧹 게시판 청소"], ["refresh", "🔄 새로고침"], ["vbella", "✒️ 앱 · 길드원 권한"], ["vbweb", "🌐 버추얼 벨라(웹) 바로가기"]]],
     ["채널", [["chat", "💬 채팅 채널"], ["voice", "🔊 음성 채널"], ["mention", "📣 알림 멘션"]]],
     ["서버", [["admin", "🛡️ 관리자"], ["homesrv", "🌐 서버 이전 등록"], ["invite", "🔗 초대 링크"], ["leave", "🚪 정리하고 내보내기"]]],
-    ["설정", [["game", "🎮 게임"], ["timing", "⏱️ 알림·참여"], ["bossnames", "🏷️ 보스 이름·별명"], ["names", "📝 표시 이름"], ["aliases", "🏷️ 별명"]]],
+    ["설정", [["game", "🎮 게임"], ["timing", "⏱️ 알림·참여"], ["bossnames", "🏷️ 보스 이름·별명"]]],
   ];
   const FB_REC = ["quick", "battle", "sheet", "refresh", "vbella", "chat", "voice", "mention", "timing", "bossnames"];
   const FB_MAX = 10;
@@ -426,7 +426,8 @@
     const rows = await q(sb.from("boss_settings").select("panel_board").eq("guild_id", G()));
     let list;
     try { list = rows[0] && rows[0].panel_board ? JSON.parse(rows[0].panel_board) : FB_REC.slice(); } catch (e) { list = FB_REC.slice(); }
-    list = [...new Set(list.filter((k) => label[k]))].slice(0, FB_MAX);
+    const FB_MERGED = { names: "bossnames", aliases: "bossnames" };   // 예전 표시 이름 · 별명 → 보스 이름·별명 하나로
+    list = [...new Set(list.map((k) => FB_MERGED[k] || k).filter((k) => label[k]))].slice(0, FB_MAX);
     const draw = () => {
       box.innerHTML = `<h2>⭐ 관리판 보드</h2>
         <p class="muted small">디스코드 관리판에 보일 버튼을 최대 ${FB_MAX}개 고르고 순서를 정해요. 디스코드 [⭐ 보드 편집]과 같은 값이라 어느 쪽에서 바꿔도 보드가 바뀌어요 (웹에서 저장하면 15초 안에).
