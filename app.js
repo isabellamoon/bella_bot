@@ -302,7 +302,7 @@
   // ---------- 설정 ----------
   async function settingsTab(v) {
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,overdue_alert,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,overdue_alert,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days,ms_days,att_from").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -339,7 +339,11 @@
         <div class="grid">
           <label class="field">자동 주기 시작일<input id="s-cpstart" type="date" value="${esc(s.cp_start || "")}"></label>
           <label class="field">며칠마다<input id="s-cpdays" type="number" min="1" max="366" value="${s.cp_days || 14}"></label>
+          <label class="field">📍 마일스톤 알림: 구간을 며칠마다 (0 = 끔)<input id="s-msdays" type="number" min="0" max="366" value="${s.ms_days || 0}"></label>
+          ${state.botOwner ? `<label class="field">🗄️ 보관 기준일 (봇 주인만 · 그날 0시 이전 기록은 숨김)<input id="s-attfrom" type="date" value="${esc((s.att_from || "").slice(0, 10))}"></label>` : ""}
         </div>
+        <p class="muted small">마일스톤: 구간 시작부터 N일마다, 그리고 구간이 끝날 때 디스코드 알림 채널에 그때까지의 출석 순위(출석 보기 기준 · 전체 같이)를 올려요.
+          ${s.att_from ? `<br>🗄️ ${esc(s.att_from.slice(5, 10).replace("-", "/"))} 0시 이전 기록은 보관 중이에요 — 출석 순위 · 기록 · 구간 · 구글 시트 · 디스코드 어디에도 안 보이고, 지우진 않았어요.` : ""}</p>
       </div>
       <div class="card">
         <h2>🔔 보스 알림</h2>
@@ -391,6 +395,8 @@
         home_srv: homeSrv, alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, overdue_alert: $("#s-overdue").checked ? 1 : 0, raid_minutes: Math.max(1, +$("#s-raid").value || 5),
         raid_rule: v.querySelector("input[name=rule]:checked").value,
         cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
+        ms_days: Math.min(366, Math.max(0, +$("#s-msdays").value || 0)),
+        ...($("#s-attfrom") ? { att_from: $("#s-attfrom").value ? `${$("#s-attfrom").value}T00:00:00+09:00` : null } : {}),   // 봇 주인만 칸이 있음
         bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
         alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
         shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
@@ -679,7 +685,7 @@
     const sun = nextSunday();
     const [choice, res] = await Promise.all([
       q(sb.from("war_choice").select("name").eq("guild_id", G()).eq("day", sun.key)),
-      q(sb.from("battle_reservations").select("id::text,name,at,open_before,close_after").eq("guild_id", G()).eq("canceled", 0).gte("at", kstIso(new Date())).order("at")),
+      q(sb.from("battle_reservations").select("id::text,name,at,open_before,close_after,kind").eq("guild_id", G()).eq("canceled", 0).gte("at", kstIso(new Date())).order("at")),
     ]);
     const cur = choice[0]?.name || "엘리시움";
     v.innerHTML = `
@@ -690,14 +696,15 @@
       </div>
       <div class="card">
         <h2>예약 전투</h2>
-        ${res.length ? `<table><thead><tr><th>일시</th><th>이름</th><th>레기온 모집</th><th></th></tr></thead><tbody>
-          ${res.map((r) => `<tr><td>${fmtDate(r.at)}</td><td><b>${esc(r.name)}</b></td><td>시작 ${r.open_before}분 전 ~ 시작 후 ${r.close_after}분</td>
+        ${res.length ? `<table><thead><tr><th>일시</th><th>이름</th><th>종류</th><th>레기온 모집</th><th></th></tr></thead><tbody>
+          ${res.map((r) => `<tr><td>${fmtDate(r.at)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.kind || BATTLE_DEFAULT)}</td><td>시작 ${r.open_before}분 전 ~ 시작 후 ${r.close_after}분</td>
             <td><button class="danger ghost" data-cancel="${r.id}">취소</button></td></tr>`).join("")}</tbody></table>` : `<p class="muted">예약된 전투가 없어요.</p>`}
       </div>
       <div class="card">
         <h2>전투 예약하기</h2>
         <div class="grid">
           <label class="field">이름<input id="r-name" value="아카디아 제전"></label>
+          <label class="field">종류 (출석표)<select id="r-kind">${BATTLE_TYPES.map((t) => `<option ${t === BATTLE_DEFAULT ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>
           <label class="field">시작 일시 (한국 시간)<input id="r-at" type="datetime-local"></label>
           <label class="field">모집: 시작 몇 분 전<input id="r-open" type="number" min="0" value="5"></label>
           <label class="field">마감: 시작 후 몇 분<input id="r-close" type="number" min="1" value="30"></label>
@@ -719,6 +726,7 @@
       await q(sb.from("battle_reservations").insert({
         guild_id: G(), name: $("#r-name").value.trim() || "전투", at: `${at.length === 16 ? at + ":00" : at}+09:00`,
         open_before: +$("#r-open").value || 0, close_after: Math.max(1, +$("#r-close").value || 30), created_by: state.me.id,
+        kind: $("#r-kind").value,
       }));
       toast("예약했어요"); render();
     };
@@ -728,12 +736,15 @@
   // 출석 구간 (체크포인트): 자동 주기(시작일 + N일마다 0시) ∪ 수동 체크포인트. 봇의 checkpoints.py 와 같은 계산
   async function segmentsOf(gid) {
     const [st, cps] = await Promise.all([
-      q(sb.from("boss_settings").select("cp_start,cp_days").eq("guild_id", gid)),
+      q(sb.from("boss_settings").select("cp_start,cp_days,att_from").eq("guild_id", gid)),
       q(sb.from("checkpoints").select("at,name").eq("guild_id", gid)),
     ]);
-    return segmentsFrom(st[0]?.cp_start, st[0]?.cp_days, cps);
+    const segs = segmentsFrom(st[0]?.cp_start, st[0]?.cp_days, cps, st[0]?.att_from);
+    segs.attFrom = st[0]?.att_from || null;
+    return segs;
   }
-  function segmentsFrom(cpStart, cpDays, cps) {
+  // 보관 기준(att_from) 이전 기록은 보관: 그 시각이 첫 경계, 그 전 구간은 안 보임
+  function segmentsFrom(cpStart, cpDays, cps, attFrom) {
     const nowMs = Date.now(), b = new Map();
     const s0 = { cp_start: cpStart, cp_days: cpDays };
     if (s0.cp_start && s0.cp_days > 0) {
@@ -741,6 +752,11 @@
       while (t <= nowMs + (s0.cp_days + 1) * 864e5) { b.set(t, ""); t += s0.cp_days * 864e5; }
     }
     for (const c of cps) b.set(Date.parse(c.at), c.name || "");
+    if (attFrom) {
+      const f = Date.parse(attFrom);
+      for (const t of [...b.keys()]) if (t < f) b.delete(t);
+      if (!b.has(f)) b.set(f, "");
+    }
     const ts = [...b.keys()].sort((a, c) => a - c);
     const md = (ms) => { const p = kstParts(new Date(ms).toISOString()); return `${pad(p.mo)}/${pad(p.d)}`; };
     const out = [];
@@ -764,19 +780,33 @@
     let start = `${y}-${pad(mo)}-01T00:00:00+09:00`;
     let end = mo === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(mo + 1)}-01T00:00:00+09:00`;
     let periodLabel = `${y}년 ${mo}월`;
+    const af = segs.attFrom, afMd = af ? af.slice(5, 10).replace("-", "/") : "";
+    if (state.period === "archive" && !(state.botOwner && af)) state.period = segs.length ? "seg:0" : "month";
     if (state.period.startsWith("seg:") && segs[+state.period.slice(4)]) {
       const sg = segs[+state.period.slice(4)];
       start = sg.start; end = sg.end || "2999-01-01T00:00:00+09:00"; periodLabel = sg.label;
+    } else if (state.period === "archive") {      // 봇 주인만: 보관 기준 이전 기록
+      start = "2000-01-01T00:00:00+09:00"; end = af; periodLabel = `🗄️ 보관 기록 (~${afMd} 전)`;
+    } else if (af && start < af) {               // 월별: 보관 기준 이전은 빠짐
+      if (end <= af) { start = end; periodLabel += " (보관 기간 — 기록 안 보임)"; }
+      else { start = af; periodLabel += ` (${afMd}부터)`; }
     }
-    const [raids, bosses] = await Promise.all([
-      q(sb.from("raids").select("id::text,boss,killed_at,category,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
-      q(sb.from("bosses").select("name,display").eq("guild_id", G())),
+    const [raids, bosses, stRows] = await Promise.all([
+      q(sb.from("raids").select("id::text,boss,killed_at,category,battle_type,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
+      q(sb.from("bosses").select("name,display").eq("guild_id", G()).order("name")),
+      q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice").eq("guild_id", G())),
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
-    const counted = raids.filter((r) => r.kill_id || r.category === "battle");
-    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");   // 콘텐츠 참여는 목록에만
-    const KIND = { battle: ["battle", "🛡️ 레기온", "레기온"], event: ["event", "📋 콘텐츠", "콘텐츠"] };
-    const kind = (r) => KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
+    // 출석 보기 (길드 전체): 봇 att_view.py · DB att_in_view 와 같은 계산
+    const av = attView(stRows[0]);
+    const inView = attFilter(av);
+    const btype = (r) => r.battle_type || BATTLE_DEFAULT;
+    const counted = raids.filter((r) => (r.kill_id || r.category === "battle") && inView(r));
+    // 기록 목록은 전부 (출석 보기에서 빠진 것도) — '출석 제외' 표시. 콘텐츠 참여는 목록에만 (순위 대상 아님)
+    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");
+    const excluded = (r) => r.category !== "event" && !inView(r);
+    const KIND = { battle: ["battle", "🛡️ 전투", "전투"], event: ["event", "📋 콘텐츠", "콘텐츠"] };
+    const kind = (r) => r.category === "battle" ? ["battle", `🛡️ ${btype(r)}`, `전투 · ${btype(r)}`] : KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
     let members = [];
     for (let i = 0; i < shown.length; i += 100) {
       const ids = shown.slice(i, i + 100).map((r) => r.id);
@@ -786,47 +816,108 @@
     for (const m of members) {
       (byRaid[m.raid_id] ||= []).push(m);
     }
-    for (const r of counted) {
+    // 순위: 시트 '월간 순위'와 같은 두 블록 — [출석] = 출석 보기 기준, [전체] = 빠진 보스 · 전투까지. 블록 안 순서 = 합계 · 보스 · 전투 · 종류별 · 보류분
+    const types = av.battle_view === "practice" ? BATTLE_TYPES.filter((t) => av.practice.includes(t)) : BATTLE_TYPES;
+    const inT = (t) => types.includes(t);
+    const blk = () => ({ total: 0, boss: 0, battle: 0, t: {} });
+    for (const r of raids.filter((x) => x.kill_id || x.category === "battle")) {
       for (const m of byRaid[r.id] || []) {
-        const p = (people[m.user_id] ||= { id: m.user_id, name: m.display_name, total: 0, boss: 0, battle: 0 });
-        p.name = m.display_name; p.total++; r.category === "battle" ? p.battle++ : p.boss++;
+        const p = (people[m.user_id] ||= { id: m.user_id, name: m.display_name, sel: blk(), all: blk() });
+        p.name = m.display_name;
+        for (const b of inView(r) ? [p.sel, p.all] : [p.all]) {
+          b.total++;
+          if (r.category === "battle") { b.battle++; b.t[btype(r)] = (b.t[btype(r)] || 0) + 1; } else b.boss++;
+        }
       }
     }
-    const rank = Object.values(people).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-    // 출석 보류분: 공격대 스샷에서 디스코드와 못 맞춘 게임 닉 (순위 번호 없이 맨 아래, 합계·보스·레기온 0). 맞춰지면 자동으로 사라지고 위로 올라감.
+    const rank = Object.values(people).sort((a, b) => b.sel.total - a.sel.total || b.all.total - a.all.total || a.name.localeCompare(b.name));
+    // 출석 보류분: 공격대 스샷에서 디스코드와 못 맞춘 게임 닉 (순위 번호 없이 맨 아래). [출석] · [전체] 따로. 맞춰지면 자동으로 사라지고 위로 올라감.
     const pending = await q(sb.rpc("web_pending_attend", { gid: G(), s: start, e: end })).catch(() => []);
+    const pendingAll = await q(sb.rpc("web_pending_attend_all", { gid: G(), s: start, e: end })).catch(() => pending);
+    const pSel = Object.fromEntries(pending.map((x) => [x.nick, x.cnt]));
+    const pNicks = pendingAll.map((x) => ({ nick: x.nick, all: x.cnt, sel: pSel[x.nick] || 0 })).sort((a, b) => b.sel - a.sel || b.all - a.all);
     const nb = counted.filter((r) => r.category !== "battle").length;
+    const nt = (t) => counted.filter((r) => r.category === "battle" && btype(r) === t).length;
+    const ranked = rank.filter((p) => p.sel.total);
+    const cells = (b, pend, sel) => [b.total, b.boss, b.battle, ...BATTLE_TYPES.map((t) => (sel && !inT(t) ? "-" : b.t[t] || 0)), pend];
+    const HEAD = ["합계", "보스", "전투", ...BATTLE_TYPES, "보류분"];
+    const ncol = 3 + HEAD.length * 2;
+    const chk = (cls, val, on) => `<label class="chk"><input type="checkbox" class="${cls}" value="${esc(val)}" ${on ? "checked" : ""}> ${esc(label[val] || val)}</label>`;
+    const extra = av.boss_view === "farmers" ? av.farm.filter((n) => !label[n]) : [];   // 목록에 없는 이름(지운 보스 등)도 보이게
     v.innerHTML = `
       <div class="card">
-        <div class="row"><h2 style="margin:0">출석 (레이드·레기온 참여)</h2>
+        <h2>👁️ 출석 보기 <span class="muted small">(길드 전체 적용)</span></h2>
+        <p class="muted small">여기서 고른 대로 웹 출석 · 디스코드 /참여통계 · /내참여 · 구글 시트가 모두 같이 바뀌어요. 기록은 그대로 있고, 세는 범위만 바뀌어요.</p>
+        <div class="row"><b>보스</b>
+          ${Object.entries(BOSS_VIEWS).map(([k, t]) => `<button data-bview="${k}" class="${av.boss_view === k ? "primary" : ""}">${t}</button>`).join("")}
+          <b style="margin-left:16px">전투</b>
+          ${Object.entries(BATTLE_VIEWS).map(([k, t]) => `<button data-tview="${k}" class="${av.battle_view === k ? "primary" : ""}">${t}</button>`).join("")}</div>
+        ${av.boss_view === "farmers"
+          ? `<details open><summary><b>🌾 파머스에 넣을 보스</b> <span class="muted small">${av.farm.length}종 · 기본은 인터보스 5종</span></summary>
+              <div class="members">${bosses.map((b) => chk("farm-b", b.name, av.farm.includes(b.name))).join("")}${extra.map((n) => chk("farm-b", n, true)).join("")}</div>
+              <p><button id="farm-reset">기본으로 (인터보스 5종)</button></p></details>`
+          : `<details open><summary><b>⚔️ 워페어에 넣을 보스</b> <span class="muted small">${bosses.length - bosses.filter((b) => av.war_off.includes(b.name)).length}/${bosses.length}종 · 기본은 전부, 새 보스는 자동으로 들어가요</span></summary>
+              <div class="members">${bosses.map((b) => chk("war-b", b.name, !av.war_off.includes(b.name))).join("")}</div>
+              <p><button id="war-reset">전부 넣기</button></p></details>`}
+        ${av.battle_view === "practice"
+          ? `<details open><summary><b>🎯 프랙티스에 넣을 전투</b> <span class="muted small">${types.length}/${BATTLE_TYPES.length}종</span></summary>
+              <div class="members">${BATTLE_TYPES.map((t) => chk("prac-t", t, av.practice.includes(t))).join("")}</div></details>`
+          : `<p class="muted small">🛡️ 베이직: 전투 ${BATTLE_TYPES.join(" · ")} 전부 들어가요.</p>`}
+      </div>
+      <div class="card">
+        <div class="row"><h2 style="margin:0">출석 <span class="muted small">${BOSS_VIEWS[av.boss_view]} + ${BATTLE_VIEWS[av.battle_view]}</span></h2>
           <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
-            ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
+            ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}
+            ${state.botOwner && af ? `<option value="archive" ${state.period === "archive" ? "selected" : ""}>🗄️ 보관 기록 (${esc(afMd)} 전 · 봇 주인만)</option>` : ""}</select>
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회 · 🛡️ 레기온 ${counted.length - nb}회 · 참여한 사람 ${rank.length}명${pending.length ? ` · 디스코드 미확인 ${pending.length}명` : ""}${shown.length > counted.length ? ` · 📋 콘텐츠 참여 ${shown.length - counted.length}회 (순위엔 안 넣음)` : ""}</p>
-        <div class="table-wrap"><table class="rank"><thead><tr><th>#</th><th>이름</th><th>합계</th><th>⚔️ 보스</th><th>🛡️ 레기온</th><th>디스코드</th><th title="공격대 스샷에 있었는데 디스코드와 아직 못 맞춘 횟수">출석 (보류분)</th></tr></thead><tbody>
-          ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td><b>${p.total}</b></td><td>${p.boss}</td><td>${p.battle}</td><td>${esc(p.name)}</td><td class="muted">0</td></tr>`).join("") || (pending.length ? "" : `<tr><td colspan="7" class="muted">기록 없음</td></tr>`)}
-          ${pending.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td><td>0</td><td>0</td><td>0</td><td class="muted">(미확인)</td><td><b>${p.cnt}</b></td></tr>`).join("")}
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
+        <p class="muted small">시트 '월간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
+        <div class="table-wrap"><table class="rank two-blk"><thead>
+          <tr><th rowspan="2">#</th><th rowspan="2">이름</th><th colspan="${HEAD.length}" class="blk-sel">[출석]</th><th colspan="${HEAD.length}" class="blk-all">[전체]</th><th rowspan="2">디스코드</th></tr>
+          <tr>${HEAD.map((h) => `<th class="blk-sel">${esc(h)}</th>`).join("")}${HEAD.map((h) => `<th class="blk-all">${esc(h)}</th>`).join("")}</tr></thead><tbody>
+          ${rank.map((p) => `<tr><td>${p.sel.total ? ranked.indexOf(p) + 1 : ""}</td><td>${esc(p.name)}</td>${cells(p.sel, 0, true).map((c, j) => `<td class="blk-sel">${j === 0 ? `<b>${c}</b>` : c}</td>`).join("")}${cells(p.all, 0, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td>${esc(p.name)}</td></tr>`).join("") || (pNicks.length ? "" : `<tr><td colspan="${ncol}" class="muted">기록 없음</td></tr>`)}
+          ${pNicks.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td>${cells(blk(), p.sel, true).map((c) => `<td class="blk-sel">${c}</td>`).join("")}${cells(blk(), p.all, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td class="muted">(미확인)</td></tr>`).join("")}
         </tbody></table></div>
       </div>
       <div class="card">
-        <h2>레이드·레기온·콘텐츠 기록</h2>
-        <p class="muted small">이름 옆 ×로 명단에서 빼고, 아래 칸에서 이번 달 참여자 중 골라 넣을 수 있어요. 디스코드 메시지의 명단은 다음에 그 메시지가 갱신될 때 맞춰져요.</p>
+        <h2>레이드·전투·콘텐츠 기록</h2>
+        <p class="muted small">기록은 전부 보여요. '출석 제외'는 지금 출석 보기에서 빠져 순위에 안 세는 기록이에요. 이름 옆 ×로 명단에서 빼고, 아래 칸에서 이번 달 참여자 중 골라 넣을 수 있어요. 전투는 종류(출석표)를 바꿀 수 있어요. 디스코드 메시지의 명단은 다음에 그 메시지가 갱신될 때 맞춰져요.</p>
         ${shown.map((r) => {
           const ms = byRaid[r.id] || [];
           return `<details data-raid="${r.id}"><summary>
-              <span class="badge ${kind(r)[0]}">${kind(r)[1]}</span>
-              <b>${esc(label[r.boss] || r.boss)}</b> <span class="muted">${fmtDate(r.killed_at)} · ${ms.length}명</span></summary>
+              <span class="badge ${kind(r)[0]}">${esc(kind(r)[1])}</span>
+              <b>${esc(label[r.boss] || r.boss)}</b> <span class="muted">${fmtDate(r.killed_at)} · ${ms.length}명</span>${excluded(r) ? ` <span class="badge off" title="지금 출석 보기에서 빠진 기록 — 순위에 안 셈">출석 제외</span>` : ""}</summary>
+            ${r.category === "battle" ? `<div class="row" style="padding-left:22px">종류 <select class="set-type">${BATTLE_TYPES.map((t) => `<option ${t === btype(r) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>` : ""}
             <div class="members">${ms.map((m) => `<span class="member">${esc(m.display_name)}<button title="빼기" data-rm="${m.user_id}">×</button></span>`).join("")}</div>
             <div class="row" style="padding-left:22px"><select class="add-who"><option value="">+ 추가할 사람</option>
               ${rank.filter((p) => !ms.some((m) => m.user_id === p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>
           </details>`;
         }).join("") || `<p class="muted">기록 없음</p>`}
       </div>`;
+    // 출석 보기 저장 (boss_settings, 길드 전체)
+    const saveView = async (patch, msg) => {
+      await q(sb.from("boss_settings").upsert({ guild_id: G(), ...patch }, { onConflict: "guild_id" }));
+      toast(msg); render();
+    };
+    v.querySelectorAll("[data-bview]").forEach((b) => (b.onclick = () => saveView({ att_boss_view: b.dataset.bview }, `보스: ${BOSS_VIEWS[b.dataset.bview]}`)));
+    v.querySelectorAll("[data-tview]").forEach((b) => (b.onclick = () => saveView({ att_battle_view: b.dataset.tview }, `전투: ${BATTLE_VIEWS[b.dataset.tview]}`)));
+    const picked = (cls) => [...v.querySelectorAll(`.${cls}`)].filter((x) => x.checked).map((x) => x.value);
+    v.querySelectorAll(".farm-b").forEach((x) => (x.onchange = () => saveView({ att_farm: JSON.stringify(picked("farm-b")) }, "파머스 보스를 바꿨어요")));
+    v.querySelectorAll(".war-b").forEach((x) => (x.onchange = () =>
+      saveView({ att_war_off: JSON.stringify([...v.querySelectorAll(".war-b")].filter((c) => !c.checked).map((c) => c.value)) }, "워페어 보스를 바꿨어요")));
+    v.querySelectorAll(".prac-t").forEach((x) => (x.onchange = () => saveView({ att_practice: JSON.stringify(picked("prac-t")) }, "프랙티스 전투를 바꿨어요")));
+    const fr = $("#farm-reset"); if (fr) fr.onclick = () => saveView({ att_farm: null }, "파머스: 기본(인터보스 5종)");
+    const wr = $("#war-reset"); if (wr) wr.onclick = () => saveView({ att_war_off: null }, "워페어: 전체 보스");
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
     v.querySelectorAll("details[data-raid]").forEach((d) => {
       const rid = d.dataset.raid;
+      const st = d.querySelector(".set-type");
+      if (st) st.onchange = async () => {
+        await q(sb.rpc("web_set_battle_type", { rid, t: st.value }));
+        toast(`종류: ${st.value}`); render();
+      };
       d.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => {
         await q(sb.from("raid_members").delete().eq("raid_id", rid).eq("user_id", b.dataset.rm));
         toast("명단에서 뺐어요"); render();
@@ -842,12 +933,42 @@
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = name; a.click();
     };
-    $("#a-csv1").onclick = () => download(`출석명단_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["날짜", "종류", "보스·전투", "인원", "참여자"],
+    const fname = (what) => `${what}_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`;
+    $("#a-csv1").onclick = () => download(fname("출석명단"), [["날짜", "종류", "보스·전투", "인원", "참여자", "출석 포함"],
       ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
-        (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", ")])]);
-    $("#a-csv2").onclick = () => download(`출석순위_${periodLabel.replace(/[^0-9가-힣a-zA-Z~]+/g, "_")}.csv`, [["순위", "이름", "합계", "보스레이드", "레기온", "디스코드", "출석(보류분)"],
-      ...rank.map((p, i) => [i + 1, p.name, p.total, p.boss, p.battle, p.name, 0]),
-      ...pending.map((p) => ["", p.nick, 0, 0, 0, "(미확인)", p.cnt])]);
+        (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", "),
+        r.category === "event" ? "-" : excluded(r) ? "X" : "O"])]);
+    // 순위 CSV: 시트 '월간 순위'와 같은 열 (월 · 디스코드 ID 대신 순위 · 이름부터)
+    const csvHead = ["순위", "이름", ...HEAD.map((h) => `[출석] ${h}`), ...HEAD.map((h) => `[전체] ${h}`), "디스코드"];
+    $("#a-csv2").onclick = () => download(fname("출석순위"), [csvHead,
+      ...rank.map((p) => [p.sel.total ? ranked.indexOf(p) + 1 : "", p.name, ...cells(p.sel, 0, true), ...cells(p.all, 0, false), p.name]),
+      ...pNicks.map((p) => ["", p.nick, ...cells(blk(), p.sel, true), ...cells(blk(), p.all, false), "(미확인)"])]);
+  }
+
+  // 출석 보기 (봇 att_view.py 와 같은 값 · 같은 계산)
+  const BATTLE_TYPES = ["공성/요새전", "점령전", "엘리시움", "길드레이드", "소집"];
+  const BATTLE_DEFAULT = "소집";
+  const FARM_DEFAULT = ["저주의 메데이아", "키메라", "복수의 메데이아", "케르베로스", "봉인된 아모르포스"];
+  const BOSS_VIEWS = { farmers: "🌾 파머스", warfare: "⚔️ 워페어" };
+  const BATTLE_VIEWS = { basic: "🛡️ 베이직", practice: "🎯 프랙티스" };
+  function attView(s) {
+    const list = (t) => { if (t == null) return null; try { const v = JSON.parse(t); return Array.isArray(v) ? v.map(String) : null; } catch { return null; } };
+    s = s || {};
+    return {
+      boss_view: s.att_boss_view === "farmers" ? "farmers" : "warfare",
+      battle_view: s.att_battle_view === "practice" ? "practice" : "basic",
+      farm: list(s.att_farm) ?? FARM_DEFAULT,
+      war_off: list(s.att_war_off) ?? [],
+      practice: list(s.att_practice) ?? BATTLE_TYPES,
+    };
+  }
+  function attFilter(av) {
+    return (r) => {
+      const c = r.category || "boss";
+      if (c === "boss") return av.boss_view === "farmers" ? av.farm.includes(r.boss) : !av.war_off.includes(r.boss);
+      if (c === "battle") return av.battle_view !== "practice" || av.practice.includes(r.battle_type || BATTLE_DEFAULT);
+      return true;
+    };
   }
 
   // ---------- 관리자 ----------
@@ -978,7 +1099,7 @@
 
   async function memberAttendanceTab(v) {
     const cp = (await q(sb.rpc("web_cp", { gid: G() }))) || {};
-    const segs = segmentsFrom(cp.cp_start, cp.cp_days, cp.checkpoints || []);
+    const segs = segmentsFrom(cp.cp_start, cp.cp_days, cp.checkpoints || [], cp.att_from);
     const now = kstParts(new Date().toISOString());
     if (state.period === undefined) state.period = segs.length ? "seg:0" : "month";
     const month = state.month || `${now.y}-${pad(now.mo)}`;
@@ -986,12 +1107,18 @@
     let start = `${y}-${pad(mo)}-01T00:00:00+09:00`;
     let end = mo === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(mo + 1)}-01T00:00:00+09:00`;
     let label = `${y}년 ${mo}월`;
+    if (state.period === "archive") state.period = segs.length ? "seg:0" : "month";   // 보관 보기는 관리자 탭(봇 주인)만
     if (state.period.startsWith("seg:") && segs[+state.period.slice(4)]) {
       const sg = segs[+state.period.slice(4)];
       start = sg.start; end = sg.end || "2999-01-01T00:00:00+09:00"; label = sg.label;
+    } else if (cp.att_from && start < cp.att_from) {   // 월별: 보관 기준 이전은 서버가 안 줌 — 제목만 맞춤
+      const md = cp.att_from.slice(5, 10).replace("-", "/");
+      label += end <= cp.att_from ? " (보관 기간 — 기록 안 보임)" : ` (${md}부터)`;
     }
+    // 기록은 전부, counted = 서버 출석 보기(관리자가 정함: 파머스/워페어 + 베이직/프랙티스)에 드는지 — 시트 · 봇과 같게 출석 / 전체 둘 다
     const rows = await q(sb.rpc("web_my_attendance", { gid: G(), s: start, e: end }));
-    const counted = rows.filter((r) => r.category !== "event");
+    const all = rows.filter((r) => r.category !== "event");
+    const counted = all.filter((r) => r.counted !== false);
     const nb = counted.filter((r) => r.category === "battle").length;
     const icon = { battle: "🛡️", event: "📋" };
     v.innerHTML = `<div class="card">
@@ -999,8 +1126,9 @@
         <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
           ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
         <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}></div>
-      <p class="muted">${esc(label)} · <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 레기온 ${nb})${rows.length > counted.length ? ` · 📋 콘텐츠 ${rows.length - counted.length}회` : ""}</p>
-      <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
+      <p class="muted">${esc(label)} · 출석 <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 전투 ${nb}) · 전체 ${all.length}회${rows.length > all.length ? ` · 📋 콘텐츠 ${rows.length - all.length}회` : ""}</p>
+      <p class="muted small">출석 = 서버 출석 보기에 든 것 · 전체 = 빠진 보스 · 전투까지. '출석 제외'는 기록은 있지만 출석에는 안 세는 거예요.</p>
+      <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}${r.category !== "event" && r.counted === false ? ` <span class="badge off">출석 제외</span>` : ""}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
   }
