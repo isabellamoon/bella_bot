@@ -34,6 +34,7 @@
     .helper-say::after { content: ""; position: absolute; left: 22px; bottom: -6px; width: 10px; height: 10px; background: var(--panel-2);
       border-right: 1px solid var(--accent); border-bottom: 1px solid var(--accent); transform: rotate(45deg); }
     .helper-say[hidden] { display: none; }
+    .helper-msg .helper-sup { padding: 8px 0 0; border-top: 0; }
     @keyframes helper-pop { from { opacity: 0; transform: translateY(6px); } }
     @keyframes helper-up { from { transform: translateY(100%); } }
     @media (max-width: 699px) {
@@ -75,14 +76,78 @@
   }
   function chips() {
     const list = D.items.filter((i) => i.chip);
-    const el = bubble(`<div class="helper-chips">${list.map((i) => `<button data-id="${i.id}">${esc(i.chip)}</button>`).join("")}</div>`, "chips");
+    const sup = D.support ? `<button data-sup="1">${esc(D.support.chip)}</button>` : "";
+    const el = bubble(`<div class="helper-chips">${sup}${list.map((i) => `<button data-id="${i.id}">${esc(i.chip)}</button>`).join("")}</div>`, "chips");
     el.onclick = (e) => {
+      if (e.target.closest("button[data-sup]")) { bubble(esc(D.support.chip), "me"); support(); return; }
       const b = e.target.closest("button[data-id]"); if (!b) return;
       const it = D.items.find((i) => i.id === b.dataset.id);
       bubble(esc(it.chip), "me"); answer(it);
     };
   }
+
+  // ---------- 🛟 원격지원 요청 (로그인 필요 · 보내기만, 답은 안 기다림) ----------
+  // 서버(SQL 함수 web_support_request(page, msg))로만 보냄 — 층 구분: 앱은 보내고 성공 · 실패만 보여 줌.
+  // 로그인은 관리자 웹(index)과 같은 Supabase 디스코드 로그인. 설치 안내 페이지에서 누르면 index 에서 로그인하고, index 도우미가 이어서 받음.
+  const SUP_KEY = "helper_support";
+  const pageName = () => (location.pathname.split("/").pop() || "index.html") + (location.hash || "");
+  let sbLite = null;
+  function loadScript(src) {
+    return new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  }
+  async function getSb() {
+    if (window.BELLA_WEB && window.BELLA_WEB.sb) return window.BELLA_WEB.sb;      // 관리자 웹: app.js 와 같은 연결
+    if (sbLite) return sbLite;
+    if (!window.supabase) await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.min.js");
+    if (!window.BOT_CONFIG) await loadScript("config.js");
+    sbLite = window.supabase.createClient(window.BOT_CONFIG.SUPABASE_URL, window.BOT_CONFIG.SUPABASE_ANON_KEY);
+    return sbLite;
+  }
+  async function support(page = pageName()) {
+    const S = D.support;
+    let sb, session = null;
+    try { sb = await getSb(); session = (await sb.auth.getSession()).data.session; }
+    catch (e) { mood("trouble"); bubble(md(S.fail)); return; }
+    if (!session) {
+      const el = bubble(`${md(S.login)}<div class="helper-go"><button class="primary" data-login="1">${esc(S.loginBtn)}</button></div>`);
+      el.querySelector("[data-login]").onclick = () => {
+        try { localStorage.setItem(SUP_KEY, JSON.stringify({ page, t: Date.now() })); } catch (e) {}
+        sb.auth.signInWithOAuth({ provider: "discord", options: { redirectTo: new URL("./", location.href).href } });
+      };
+      return;
+    }
+    const el = bubble(`${md(S.ask)}<form class="helper-ask helper-sup"><input maxlength="200" placeholder="${esc(S.placeholder)}"><button class="primary">${esc(S.send)}</button></form>`);
+    const f = el.querySelector("form"), inp = f.querySelector("input");
+    inp.focus();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const msg = inp.value.trim(); if (!msg) return;
+      f.querySelector("button").disabled = true;
+      const { error } = await sb.rpc("web_support_request", { page: page.slice(0, 80), msg: msg.slice(0, 200) });
+      if (error) {
+        f.querySelector("button").disabled = false; mood("trouble");
+        // 로그인이 풀린 채로 부르면 서버가 영어 'permission denied …' 를 돌려줌 → 로그인 안내로 바꿔 보여 줌
+        const why = /permission denied/i.test(error.message || "") ? S.login : String(error.message || "").replace(/^오류:\s*/, "");
+        bubble(md(`${S.fail}${why ? "\n" + why : ""}`)); return;
+      }
+      f.remove(); bubble(esc(msg), "me"); mood("smile");
+      try { localStorage.removeItem(SUP_KEY); } catch (e) {}
+      const back = page !== pageName() ? `<div class="helper-go"><button data-href="${esc(page)}">${esc(S.back)} →</button></div>` : "";
+      const done = bubble(md(S.sent) + back);
+      const bb = done.querySelector("[data-href]"); if (bb) bb.onclick = () => (location.href = bb.dataset.href);
+    };
+  }
+  function supportResume() {     // 로그인하고 돌아온 뒤: 누른 페이지 이름 그대로 이어서 (10분 안)
+    let v = null;
+    // 표시는 보내기 성공 · 창 닫기 때 지움 (로그인 직후 페이지가 한 번 더 새로 열려도 이어지게)
+    try { v = JSON.parse(localStorage.getItem(SUP_KEY) || "null"); } catch (e) {}
+    if (!v || !D.support) return;
+    if (Date.now() - (v.t || 0) > 600e3) { try { localStorage.removeItem(SUP_KEY); } catch (e) {} return; }
+    open(); bubble(esc(D.support.chip), "me"); support(String(v.page || pageName()));
+  }
+
   function goTab(tab) {
+    if (!document.querySelector("#tabs")) { location.href = `./#${tab}`; return; }     // 설치 안내 같은 따로 페이지: 관리자 웹 그 탭으로
     const b = document.querySelector(`#tabs button[data-tab="${tab}"]`);
     if (!b || document.querySelector("#main")?.hidden) {
       bubble("먼저 디스코드로 로그인해 주세요. 로그인하면 그 화면으로 바로 갈 수 있어요.");
@@ -114,7 +179,7 @@
     if (!started) { started = true; mood("smile"); bubble(md(D.hello)); chips(); }
     input.focus();
   }
-  function close() { box.hidden = true; root.classList.remove("open"); showSay(); }
+  function close() { try { localStorage.removeItem(SUP_KEY); } catch (e) {} box.hidden = true; root.classList.remove("open"); showSay(); }
   root.querySelectorAll(".helper-char, .helper-face:not(.small)").forEach((b) => (b.onclick = () => (box.hidden ? open() : close())));
   root.querySelector(".helper-close").onclick = close;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !box.hidden) close(); });
@@ -128,7 +193,10 @@
     input.value = "";
     bubble(esc(q), "me");
     const it = find(q);
-    if (it) answer(it);
+    const sc = (x) => (x ? x.keys.reduce((n, k) => n + (norm(q).includes(norm(k)) ? norm(k).length : 0), 0) : 0);
+    if (D.support && sc(D.support) > 0 && sc(D.support) >= sc(it)) support();      // '원격지원' 같은 말 → 바로 요청 받기
+    else if (it) answer(it);
     else { mood("trouble"); bubble(md(D.fallback)); chips(); }
   };
+  setTimeout(supportResume);
 })();

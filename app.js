@@ -934,6 +934,10 @@
       q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats,att_score").eq("guild_id", G())),
       q(sb.from("raids").select("id").eq("guild_id", G()).eq("category", "battle").limit(1)),   // 출석 분류 추천: 전투 기록이 있는지
     ]);
+    // 사람이 간 보스 기록 (봇 att_view.went_sql · DB att_went 와 같음): 컷 있든 없든, 대기 · 마감된 모집 포함, 아무도 없는 기록 · 취소는 빠짐
+    const went = new Set(await q(sb.rpc("web_went_ids", { gid: G(), s: start, e: end })));
+    for (const r of raids) if (went.has(r.id) && r.category === "pending") r.category = "boss";   // 화면 · 보기 계산에선 '보스'
+    const isCnt = (r) => went.has(r.id) || r.category === "battle";
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
     // 출석 보기 (길드 전체): 봇 att_view.py · DB att_in_view 와 같은 계산
     const av = attView(stRows[0]);
@@ -943,9 +947,9 @@
     const inView0 = attFilter(av);
     const inView = (r) => !isOff(r) && inView0(r);
     const btype = (r) => r.battle_type || BATTLE_DEFAULT;
-    const counted = raids.filter((r) => (r.kill_id || r.category === "battle") && inView(r));
+    const counted = raids.filter((r) => isCnt(r) && inView(r));
     // 기록 목록은 전부 (출석 보기에서 빠진 것도) — '출석 제외' 표시. 콘텐츠 참여는 목록에만 (순위 대상 아님)
-    const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");
+    const shown = raids.filter((r) => isCnt(r) || r.category === "event");
     const excluded = (r) => r.category !== "event" && !isOff(r) && !inView(r);
     const KIND = { battle: ["battle", "🛡️ 전투", "전투"], event: ["event", "📋 콘텐츠", "콘텐츠"] };
     const kind = (r) => r.category === "battle" ? ["battle", `🛡️ ${btype(r)}`, `전투 · ${btype(r)}`] : KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
@@ -962,7 +966,7 @@
     const types = av.battle_view === "practice" ? BATTLE_TYPES.filter((t) => av.practice.includes(t)) : BATTLE_TYPES;
     const inT = (t) => types.includes(t);
     const blk = () => ({ total: 0, boss: 0, battle: 0, t: {} });
-    for (const r of raids.filter((x) => (x.kill_id || x.category === "battle") && !isOff(x))) {
+    for (const r of raids.filter((x) => isCnt(x) && !isOff(x))) {
       for (const m of byRaid[r.id] || []) {
         const p = (people[m.user_id] ||= { id: m.user_id, name: m.display_name, sel: blk(), all: blk() });
         p.name = m.display_name;
