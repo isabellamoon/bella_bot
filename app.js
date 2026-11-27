@@ -195,7 +195,7 @@
 
   // ---------- 보스 ----------
   async function bossesTab(v) {
-    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first,kind,alert_offsets").eq("guild_id", G()).order("respawn_min").order("name"));
+    const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first,kind,alert_offsets,raid_on").eq("guild_id", G()).order("respawn_min").order("name"));
     const now = kstIso(new Date());
     v.innerHTML = `
       <div class="card">
@@ -203,7 +203,7 @@
         <p class="muted small">리젠: <code>8시간</code> <code>1시간 30분</code> <code>미정</code> · 요일·시각 보스: <code>화 21시</code> <code>매일 0시, 12시, 18시</code>.
           표시 이름은 메시지에 보일 이름, 별명은 <code>/컷</code>·음성·스크린샷 인식용(쉼표로 구분).</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>보스</th><th>구분</th><th>표시 이름</th><th>리젠 / 일정</th><th title="비우면 구분 값 (설정의 인터 · 본토)">알림 (분 전)</th><th>별명</th><th>상태</th><th></th></tr></thead>
+          <thead><tr><th>보스</th><th>구분</th><th>표시 이름</th><th>리젠 / 일정</th><th title="비우면 구분 값 (설정의 인터 · 본토)">알림 (분 전)</th><th>별명</th><th title="Off: 디스코드 레이드 모집 글 · 앱 참여(출석) 칩이 안 떠요. 컷 · 현황판 · 다음 출현은 그대로. 이미 열린 레이드는 그대로예요.">레이드</th><th>상태</th><th></th></tr></thead>
           <tbody>${rows.map((b) => {
             const waiting = !!b.wait_first, hidden = !waiting && b.hidden_until && b.hidden_until > now;
             return `<tr data-name="${esc(b.name)}" class="${hidden || waiting ? "hidden-boss" : ""}">
@@ -213,6 +213,7 @@
               <td><input name="rule" value="${esc(fmtRule(b))}"></td>
               <td><input name="offs" class="offs" value="${esc(b.alert_offsets == null ? "" : b.alert_offsets === "" ? "없음" : b.alert_offsets.split(",").join(", "))}" placeholder="구분 값"></td>
               <td><input name="aliases" value="${esc((b.aliases || "").split(",").filter(Boolean).join(", "))}"></td>
+              <td><button data-act="raid" data-on="${b.raid_on === 0 ? 0 : 1}" class="${b.raid_on === 0 ? "ghost" : "primary"}" title="누르면 바로 바뀌어요">${b.raid_on === 0 ? "Off" : "On"}</button></td>
               <td>${waiting ? `<span class="badge off" title="첫 컷이 들어오면 자동으로 켜져요">첫 컷 대기</span>` : hidden ? `<span class="badge off">제외 ~${fmtDate(b.hidden_until)}</span>` : `<span class="badge">활성</span>`}</td>
               <td class="row">
                 <button data-act="save" class="primary">저장</button>
@@ -248,6 +249,10 @@
           aliases: aliasList(tr.querySelector("[name=aliases]").value),
         })));
         toast(`${name} 저장했어요`);
+      } else if (btn.dataset.act === "raid") {   // 레이드 On/Off: 누르는 즉시 저장 (이미 열린 레이드는 그대로, 이후 여는 것만 막음 — 봇)
+        const on = btn.dataset.on === "1" ? 0 : 1;
+        await q(where(sb.from("bosses").update({ raid_on: on })));
+        toast(on ? `${name} 레이드 On` : `${name} 레이드 Off — 모집 글 · 참여 칩이 안 떠요 (컷은 그대로)`); render();
       } else if (btn.dataset.act === "hide") {
         await q(where(sb.from("bosses").update({ hidden_until: kstIso(new Date(Date.now() + 30 * 86400e3)) })));
         toast(`${name} 30일 동안 제외`); render();
