@@ -62,6 +62,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+/* 지금 보는 서버가 늘 보이게: 서버 선택 · 탭 줄을 위에 고정 (시험 서버에 잘못 저장한 일 뒤) */
+#main .toolbar { position: sticky; top: 0; z-index: 20; background: var(--bg); padding: 8px 0; border-bottom: 1px solid var(--line); }
+#guild { font-weight: 700; border: 1px solid var(--accent); }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .tabs button { background: transparent; border: 1px solid var(--line); color: var(--muted); }
 .tabs button.active { background: var(--accent); color: #1a1033; border-color: var(--accent); font-weight: 700; }

@@ -12,7 +12,9 @@
   // ---------- 공통 ----------
   function toast(msg, err = false) {
     const t = $("#toast");
-    t.textContent = msg;
+    // 바꾼 안내에는 지금 서버 이름을 앞에 (예: '[아래X폭군 연합 디스코드] 트라손 레이드 Off') — 시험 서버와 헷갈리지 않게. 오류 안내는 그대로.
+    const g = !err && state.gid && (state.guilds || []).find((x) => x.guild_id === state.gid);
+    t.textContent = g && g.name ? `[${g.name}] ${msg}` : msg;
     t.className = "toast" + (err ? " err" : "");
     t.hidden = false;
     clearTimeout(toast._t);
@@ -152,6 +154,7 @@
   async function selectGuild(gid) {
     state.gid = gid;
     const g = state.guilds.find((x) => x.guild_id === gid);
+    document.title = `${g && g.name ? `[${g.name}] ` : ""}벨라꼬붕 도움받기 (관리자 패널)`;   // 브라우저 탭에도 지금 서버
     // 길드원(관리자 아님): 보스 현황(읽기) · 내 출석 · 버추얼 벨라 탭만
     state.member = !!g && g.role === "member";
     const MEMBER_OK = ["bosses", "attendance", "vbella"];
@@ -927,19 +930,23 @@
     }
     const [raids, bosses, stRows, anyBattle] = await Promise.all([
       q(sb.from("raids").select("id::text,boss,killed_at,category,battle_type,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
-      q(sb.from("bosses").select("name,display,kind").eq("guild_id", G()).order("name")),
+      q(sb.from("bosses").select("name,display,kind,raid_on").eq("guild_id", G()).order("name")),
       q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats,att_score").eq("guild_id", G())),
       q(sb.from("raids").select("id").eq("guild_id", G()).eq("category", "battle").limit(1)),   // 출석 분류 추천: 전투 기록이 있는지
     ]);
     const label = Object.fromEntries(bosses.map((b) => [b.name, b.display || b.name]));
     // 출석 보기 (길드 전체): 봇 att_view.py · DB att_in_view 와 같은 계산
     const av = attView(stRows[0]);
-    const inView = attFilter(av);
+    // 레이드 Off 보스(bosses.raid_on=0): 쌓인 기록도 [출석] · [전체] 모두 안 셈 — 봇 att_view.raid_on_sql · DB att_in_view 와 같음. 기록은 목록에 '안 셈'으로 보임.
+    const offB = new Set(bosses.filter((b) => b.raid_on === 0).map((b) => b.name));
+    const isOff = (r) => r.category !== "battle" && r.category !== "event" && offB.has(r.boss);
+    const inView0 = attFilter(av);
+    const inView = (r) => !isOff(r) && inView0(r);
     const btype = (r) => r.battle_type || BATTLE_DEFAULT;
     const counted = raids.filter((r) => (r.kill_id || r.category === "battle") && inView(r));
     // 기록 목록은 전부 (출석 보기에서 빠진 것도) — '출석 제외' 표시. 콘텐츠 참여는 목록에만 (순위 대상 아님)
     const shown = raids.filter((r) => r.kill_id || r.category === "battle" || r.category === "event");
-    const excluded = (r) => r.category !== "event" && !inView(r);
+    const excluded = (r) => r.category !== "event" && !isOff(r) && !inView(r);
     const KIND = { battle: ["battle", "🛡️ 전투", "전투"], event: ["event", "📋 콘텐츠", "콘텐츠"] };
     const kind = (r) => r.category === "battle" ? ["battle", `🛡️ ${btype(r)}`, `전투 · ${btype(r)}`] : KIND[r.category] || ["boss", "⚔️ 보스", "보스레이드"];
     let members = [];
@@ -955,7 +962,7 @@
     const types = av.battle_view === "practice" ? BATTLE_TYPES.filter((t) => av.practice.includes(t)) : BATTLE_TYPES;
     const inT = (t) => types.includes(t);
     const blk = () => ({ total: 0, boss: 0, battle: 0, t: {} });
-    for (const r of raids.filter((x) => x.kill_id || x.category === "battle")) {
+    for (const r of raids.filter((x) => (x.kill_id || x.category === "battle") && !isOff(x))) {
       for (const m of byRaid[r.id] || []) {
         const p = (people[m.user_id] ||= { id: m.user_id, name: m.display_name, sel: blk(), all: blk() });
         p.name = m.display_name;
@@ -1009,7 +1016,7 @@
             ${state.botOwner && af ? `<option value="archive" ${state.period === "archive" ? "selected" : ""}>🗄️ 보관 기록 (${esc(afMd)} 전 · 봇 주인만)</option>` : ""}</select>
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some(isOff) ? ` · 레이드 Off 보스 ${shown.filter(isOff).length}회 (안 셈)` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
         <p class="muted small">시트 '주간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
         <div class="table-wrap"><table class="rank two-blk"><thead>
           <tr><th rowspan="2">#</th><th rowspan="2">이름</th><th colspan="${HEAD.length}" class="blk-sel">[출석]</th><th colspan="${HEAD.length}" class="blk-all">[전체]</th><th rowspan="2">디스코드</th></tr>
@@ -1025,7 +1032,7 @@
           const ms = byRaid[r.id] || [];
           return `<details data-raid="${r.id}"><summary>
               <span class="badge ${kind(r)[0]}">${esc(kind(r)[1])}</span>
-              <b>${esc(label[r.boss] || r.boss)}</b> <span class="muted">${fmtDate(r.killed_at)} · ${ms.length}명</span>${excluded(r) ? ` <span class="badge off" title="지금 출석 보기에서 빠진 기록 — 순위에 안 셈">출석 제외</span>` : ""}</summary>
+              <b>${esc(label[r.boss] || r.boss)}</b> <span class="muted">${fmtDate(r.killed_at)} · ${ms.length}명</span>${excluded(r) ? ` <span class="badge off" title="지금 출석 보기에서 빠진 기록 — 순위에 안 셈">출석 제외</span>` : ""}${isOff(r) ? ` <span class="badge off" title="보스 목록에서 레이드 Off — [출석] · [전체] 모두 안 셈. On 으로 바꾸면 다시 셈">안 셈 · 레이드 Off</span>` : ""}</summary>
             ${r.category === "battle" ? `<div class="row" style="padding-left:22px">종류 <select class="set-type">${BATTLE_TYPES.map((t) => `<option ${t === btype(r) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>` : ""}
             <div class="members">${ms.map((m) => `<span class="member">${esc(m.display_name)}<button title="빼기" data-rm="${m.user_id}">×</button></span>`).join("")}</div>
             <div class="row" style="padding-left:22px"><select class="add-who"><option value="">+ 추가할 사람</option>
@@ -1093,7 +1100,7 @@
     $("#a-csv1").onclick = () => download(fname("출석명단"), [["날짜", "종류", "보스·전투", "인원", "참여자", "출석 포함"],
       ...shown.map((r) => [fmtDate(r.killed_at), kind(r)[2], label[r.boss] || r.boss,
         (byRaid[r.id] || []).length, (byRaid[r.id] || []).map((m) => m.display_name).join(", "),
-        r.category === "event" ? "-" : excluded(r) ? "X" : "O"])]);
+        r.category === "event" ? "-" : excluded(r) || isOff(r) ? "X" : "O"])]);
     // 순위 CSV: 시트 '주간 순위'와 같은 열 (월 · 디스코드 ID 대신 순위 · 이름부터)
     const csvHead = ["순위", "이름", ...HEAD.map((h) => `[출석] ${h}`), ...HEAD.map((h) => `[전체] ${h}`), "디스코드"];
     $("#a-csv2").onclick = () => download(fname("출석순위"), [csvHead,
@@ -1442,7 +1449,7 @@
     }
     // 기록은 전부, counted = 서버 출석 보기(관리자가 정함: 파머스/워페어 + 베이직/프랙티스)에 드는지 — 시트 · 봇과 같게 출석 / 전체 둘 다
     const rows = await q(sb.rpc("web_my_attendance", { gid: G(), s: start, e: end }));
-    const all = rows.filter((r) => r.category !== "event");
+    const all = rows.filter((r) => r.category !== "event" && !r.off);     // 레이드 Off 보스 기록은 전체에서도 안 셈 (목록엔 '안 셈')
     const counted = all.filter((r) => r.counted !== false);
     const nb = counted.filter((r) => r.category === "battle").length;
     const icon = { battle: "🛡️", event: "📋" };
@@ -1451,9 +1458,9 @@
         <select id="a-period"><option value="month" ${state.period === "month" ? "selected" : ""}>월별</option>
           ${segs.map((sg, i) => `<option value="seg:${i}" ${state.period === `seg:${i}` ? "selected" : ""}>📍 ${esc(sg.label)}</option>`).join("")}</select>
         <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}></div>
-      <p class="muted">${esc(label)} · 출석 <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 전투 ${nb}) · 전체 ${all.length}회${rows.length > all.length ? ` · 📋 콘텐츠 ${rows.length - all.length}회` : ""}</p>
+      <p class="muted">${esc(label)} · 출석 <b>${counted.length}회</b> (⚔️ 보스레이드 ${counted.length - nb} · 🛡️ 전투 ${nb}) · 전체 ${all.length}회${rows.some((r) => r.category === "event") ? ` · 📋 콘텐츠 ${rows.filter((r) => r.category === "event").length}회` : ""}${rows.some((r) => r.off) ? ` · 안 셈(레이드 Off 보스) ${rows.filter((r) => r.off).length}회` : ""}</p>
       <p class="muted small">출석 = 서버 출석 보기에 든 것 · 전체 = 빠진 보스 · 전투까지. '출석 제외'는 기록은 있지만 출석에는 안 세는 거예요.</p>
-      <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}${r.category !== "event" && r.counted === false ? ` <span class="badge off">출석 제외</span>` : ""}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
+      <div class="board-list">${rows.map((r) => `<div><span class="muted">${fmtDate(r.at)}</span> ${icon[r.category] || "⚔️"} ${esc(r.label)}${r.off ? ` <span class="badge off">안 셈</span>` : r.category !== "event" && r.counted === false ? ` <span class="badge off">출석 제외</span>` : ""}</div>`).join("") || `<p class="muted">기록 없음</p>`}</div></div>`;
     $("#a-month").onchange = (e) => { state.month = e.target.value; render(); };
     $("#a-period").onchange = (e) => { state.period = e.target.value; render(); };
   }
