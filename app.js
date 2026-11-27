@@ -200,6 +200,11 @@
   async function bossesTab(v) {
     const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first,kind,alert_offsets,raid_on").eq("guild_id", G()).order("respawn_min").order("name"));
     const now = kstIso(new Date());
+    // 알림 칸이 비면 구분(인터 · 본토) 기본값을 씀 → 그 값을 흐린 글씨로 보여 줌 (설정 탭 '보스 알림'과 같은 기본값)
+    const st = ((await sb.from("boss_settings").select("alert_offsets,alert_inter").eq("guild_id", G())).data || [])[0] || {};
+    const fmtOffs = (v) => v === "" ? "없음" : v.split(",").join(", ");
+    const defOffs = { main: fmtOffs(st.alert_offsets ?? "5,1"), inter: fmtOffs(st.alert_inter ?? "20,10") };
+    const offsPh = (kind) => `기본 ${defOffs[kind === "inter" ? "inter" : "main"]}`;
     v.innerHTML = `
       <div class="card">
         <h2>보스 목록 (${rows.length})</h2>
@@ -214,7 +219,7 @@
               <td><select name="kind" class="kind-sel"><option value="main" ${b.kind === "inter" ? "" : "selected"}>본토</option><option value="inter" ${b.kind === "inter" ? "selected" : ""}>인터</option></select></td>
               <td><input name="display" value="${esc(b.display || "")}" placeholder="${esc(b.name)}"></td>
               <td><input name="rule" value="${esc(fmtRule(b))}"></td>
-              <td><input name="offs" class="offs" value="${esc(b.alert_offsets == null ? "" : b.alert_offsets === "" ? "없음" : b.alert_offsets.split(",").join(", "))}" placeholder="구분 값"></td>
+              <td><input name="offs" class="offs" value="${esc(b.alert_offsets == null ? "" : b.alert_offsets === "" ? "없음" : b.alert_offsets.split(",").join(", "))}" placeholder="${esc(offsPh(b.kind))}"></td>
               <td><input name="aliases" value="${esc((b.aliases || "").split(",").filter(Boolean).join(", "))}"></td>
               <td><button data-act="raid" data-on="${b.raid_on === 0 ? 0 : 1}" class="${b.raid_on === 0 ? "ghost" : "primary"}" title="누르면 바로 바뀌어요">${b.raid_on === 0 ? "Off" : "On"}</button></td>
               <td>${waiting ? `<span class="badge off" title="첫 컷이 들어오면 자동으로 켜져요">첫 컷 대기</span>` : hidden ? `<span class="badge off">제외 ~${fmtDate(b.hidden_until)}</span>` : `<span class="badge">활성</span>`}</td>
@@ -275,6 +280,8 @@
       const sel = e.target.closest("select.kind-sel"); if (!sel) return;
       const name = sel.closest("tr").dataset.name;
       await q(sb.from("bosses").update({ kind: sel.value }).eq("guild_id", G()).eq("name", name));
+      const offs = sel.closest("tr").querySelector("[name=offs]");
+      if (offs) offs.placeholder = offsPh(sel.value);              // 구분이 바뀌면 기본 알림 글씨도 바꿈
       toast(`${name} → ${sel.value === "inter" ? "인터" : "본토"}`);
     };
     $("#nb-add").onclick = async () => {
