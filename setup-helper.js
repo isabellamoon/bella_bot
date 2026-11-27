@@ -268,11 +268,12 @@
   async function loadCtx(flow) {
     const w = W(), sb = w.sb, g = w.G();
     const need = JSON.stringify(flow);
-    const [rows, bosses, battle, builds] = await Promise.all([
+    const [rows, bosses, battle, builds, match] = await Promise.all([
       flow.load.length ? w.q(sb.from("boss_settings").select(flow.load.join(",")).eq("guild_id", g)) : [],
       /bosses|cat_suggest/.test(need) ? w.q(sb.from("bosses").select("name,display,kind").eq("guild_id", g).order("name")) : [],
       /cat_suggest/.test(need) ? w.q(sb.from("raids").select("id").eq("guild_id", g).eq("category", "battle").limit(1)) : [],
       /builds_/.test(need) ? w.q(sb.rpc("web_vb_builds", { gid: g })).catch(() => []) : [],
+      /match_/.test(need) && window.bellaMatchSummary ? Promise.resolve(window.bellaMatchSummary()) : null,
     ]);
     let cur = rows[0] || {};
     if (flow.target === "att_score") {      // 평점: JSON 한 칸을 mode · cat · boss · battle 로 풀어서 (저장은 서버가 다시 정리)
@@ -300,6 +301,8 @@
       k: {
         farm_default: w.FARM_DEFAULT.slice(), battle_all: w.BATTLE_TYPES.slice(), board_rec: w.FB_REC.slice(),
         score_mode: cur.mode,
+        ...(match ? { match_auto: +match.auto || 0, match_suggest: +match.suggest || 0, match_unmatched: +match.unmatched || 0,
+          match_total: +match.total || 0, match_left: (+match.suggest || 0) + (+match.unmatched || 0) } : {}),
         board_grouped: boardOrder.filter((k) => board.includes(k)),
         cat_suggest: sug.map((c) => c.name).join(", "),
         today: `${kp.y}-${String(kp.mo).padStart(2, "0")}-${String(kp.d).padStart(2, "0")}`,
@@ -327,7 +330,7 @@
     if (!flow) return;
     const wait = bubble(`<span class="muted">지금 설정을 불러오는 중…</span>`);
     let ctx;
-    try { ctx = await loadCtx(flow); } catch (e) { wait.remove(); bubble("지금 설정을 불러오지 못했어요. 잠시 뒤에 다시 해 주세요."); menu("다른 걸 바꿀까요?"); return; }
+    try { ctx = await loadCtx(flow); } catch (e) { wait.remove(); const t = document.querySelector("#toast"); if (t) t.hidden = true; bubble("지금 설정을 불러오지 못했어요. 잠시 뒤에 다시 해 주세요."); menu("다른 걸 바꿀까요?"); return; }
     wait.remove();
     run = SetupCore(flow, ctx); run.start(); gid = W().G();
     ask();
@@ -373,7 +376,7 @@
     const reply = (r, said) => {
       if (r && r.go) {
         me(said);
-        bubble(`${esc({ attendance: "출석", settings: "설정", vbella: "버추얼 벨라" }[r.go] || r.go)} 탭을 열어 드릴게요. 여기선 아무것도 안 바꿨어요.`);
+        bubble(`${esc({ attendance: "출석", settings: "설정", vbella: "버추얼 벨라", match: "매칭표" }[r.go] || r.go)} 탭을 열어 드릴게요. 여기선 아무것도 안 바꿨어요.`);
         goTab(r.go); menu("다른 걸 바꿀까요?"); return;
       }
       if (typeof r === "string") { el.querySelector(".setup-err")?.remove(); el.insertAdjacentHTML("beforeend", `<div class="setup-err">${esc(r)}</div>`); return; }

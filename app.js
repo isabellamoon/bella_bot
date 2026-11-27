@@ -164,6 +164,8 @@
       document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x.dataset.tab === "bosses"));
     }
     state.owner = state.botOwner || (g && g.owner_id === state.me.id);
+    // 설정 도우미 '🔗 매칭표 확인' (브랜치6): 관리자일 때만 함수가 있음 → 없으면 메뉴 안 보임
+    if (state.member) delete window.bellaMatchSummary; else window.bellaMatchSummary = matchSummary;
     // 우상단에 이 서버에서의 내 역할 표시
     let role = state.botOwner ? "👑 봇 주인" : g && g.owner_id === state.me.id ? "🏰 서버 주인" : state.member ? "🙋 길드원" : null;
     if (!role) {
@@ -463,6 +465,70 @@
       }
     };
     draw();
+  }
+
+  // ---------- 매칭표 (관리자): 게임 명단 ↔ 디스코드 계정 한 번 확정 — 표 game_match(봇 엔진, 브랜치4) · SQL web_match_* ----------
+  // 사람 수고 최소: 자동 확정은 개수만 접음 · 제안은 1등/2등 한 번 누르기 · 못 맞춤은 '디코 없음'으로 미리 둔 접힌 목록 · 다 하면 새로 바뀐 줄만.
+  async function matchSummary() {
+    const rows = await q(sb.rpc("web_match_list", { gid: G() }));
+    const n = (st) => rows.filter((r) => r.status === st).length;
+    return { auto: n("auto"), suggest: n("suggest"), unmatched: n("unmatched"), total: rows.filter((r) => r.status !== "stale").length };
+  }
+  async function matchTab(v) {
+    let rows, members;
+    try {
+      [rows, members] = await Promise.all([q(sb.rpc("web_match_list", { gid: G() })), q(sb.rpc("web_match_members", { gid: G() }))]);
+    } catch { v.innerHTML = `<div class="card"><h2>🔗 매칭표</h2><p class="muted">⚠️ 불러오지 못했어요. 새로고침해 주세요.</p></div>`; return; }
+    const nick = Object.fromEntries(members.map((m) => [m.user_id, m.nick]));
+    const by = (st) => rows.filter((r) => r.status === st);
+    const conflict = rows.filter((r) => r.conflict_uid && r.status !== "stale");
+    const [auto, sug, un, conf, none, stale] = ["auto", "suggest", "unmatched", "confirmed", "none", "stale"].map(by);
+    const nm = (u) => esc(nick[u] || u || "");
+    const alts = (r) => (r.evidence?.alts || []).length > 1 ? ` <span class="muted small">(부계 ${esc(r.evidence.alts.join(" · "))})</span>` : "";
+    const key = (r) => `data-gg="${esc(r.game_guild)}" data-gn="${esc(r.game_nick)}"`;
+    const pick = (r, def) => `<select class="m-pick" ${key(r)}><option value="">${def ? "— 디코 없음 —" : "다른 사람 고르기…"}</option>
+        ${members.map((m) => `<option value="${esc(m.user_id)}" ${m.user_id === r.user_id ? "selected" : ""}>${esc(m.nick)}</option>`).join("")}</select>`;
+    const line = (r, body) => `<div class="row" style="border-top:1px solid var(--line, #ddd);padding:6px 0"><b>${esc(r.game_guild)} / ${esc(r.game_nick)}</b> ${body}</div>`;
+    const left = sug.length + un.length + conflict.length;
+    v.innerHTML = `<div class="card">
+        <h2>🔗 매칭표 <span class="muted small">(게임 명단 ↔ 디스코드 · 관리자만)</span></h2>
+        <p class="muted small">처음 한 번만 확인하면 돼요. 여기서 정한 게 출석에도 쓰여요 (/닉등록이 있으면 /닉등록이 먼저). 명단이 바뀌면 바뀐 줄만 다시 떠요.</p>
+        ${rows.length ? `<p>자동 확정 <b>${auto.length}</b> · 사람 확정 <b>${conf.length}</b> · 디코 없음 <b>${none.length}</b> · 확인할 줄 <b>${left}</b>${stale.length ? ` · <span class="muted">명단에서 빠짐 ${stale.length}</span>` : ""}</p>`
+          : `<p class="muted">아직 매칭표가 없어요. 게임 길드 명단을 올리면 봇이 30분 안에 채워요.</p>`}
+        ${rows.length && !left ? `<p>✅ 새로 확인할 줄이 없어요.</p>` : ""}
+      </div>
+      ${conflict.length ? `<div class="card"><h3>⚠️ 충돌 ${conflict.length}줄 <span class="muted small">(매칭표와 /닉등록이 다른 사람 — 출석은 지금 /닉등록을 따라요)</span></h3>
+        ${conflict.map((r) => line(r, `매칭표 <b>${nm(r.user_id)}</b> · /닉등록 <b>${esc(r.conflict_name || r.conflict_uid)}</b>
+          <button class="m-set" ${key(r)} data-uid="${esc(r.conflict_uid)}">/닉등록대로 (${esc(r.conflict_name || r.conflict_uid)})</button>
+          ${r.user_id ? `<button class="ghost m-set" ${key(r)} data-uid="${esc(r.user_id)}">매칭표대로 (${nm(r.user_id)})</button>` : ""}`)).join("")}</div>` : ""}
+      ${sug.length ? `<div class="card"><h3>🤔 제안 ${sug.length}줄 <span class="muted small">(맞는 사람을 한 번 누르세요)</span></h3>
+        ${sug.map((r) => line(r, `${(r.evidence?.cands || []).map((c, i) => `<button class="${i ? "ghost " : ""}m-set" ${key(r)} data-uid="${esc(c.user_id)}" title="${esc(c.why || "")}">${i + 1}등 ${esc(c.name || nick[c.user_id] || c.user_id)}</button>
+              <span class="muted small">${esc(c.why || "")}</span>`).join(" ")}
+            ${pick(r, false)} <button class="ghost m-set" ${key(r)} data-uid="">디코 없음</button>`)).join("")}</div>` : ""}
+      ${un.length ? `<div class="card"><details><summary><b>🫥 못 맞춤 ${un.length}줄</b> <span class="muted small">— '디코 없음'으로 둘게요. 아는 사람만 골라 주세요.</span></summary>
+          ${un.map((r) => line(r, pick(r, true))).join("")}
+        </details><p class="row"><button class="primary" id="m-none-rest">나머지 ${un.length}줄 모두 '디코 없음' 확정</button></p></div>` : ""}
+      ${auto.length ? `<div class="card"><details><summary><b>🤖 자동 확정 ${auto.length}줄</b> <span class="muted small">(별명 · /닉등록으로 맞춤 — 틀린 것만 바꾸세요)</span></summary>
+          ${auto.map((r) => line(r, `→ <b>${nm(r.user_id)}</b>${alts(r)} <span class="muted small">${esc(r.evidence?.why || "")}</span> ${pick(r, false)}`)).join("")}</details></div>` : ""}
+      ${conf.length + none.length ? `<div class="card"><details><summary><b>✋ 사람이 정한 줄 ${conf.length + none.length}</b></summary>
+          ${[...conf, ...none].map((r) => line(r, `→ <b>${r.status === "none" ? "디코 없음" : nm(r.user_id)}</b> <span class="muted small">${fmtDate(r.decided_at)}</span> ${pick(r, r.status === "none")}`)).join("")}</details></div>` : ""}`;
+    const decide = async (gg, gn, uid) => {
+      try {
+        const st = await q(sb.rpc("web_match_decide", { gid: G(), gg, gn, uid: uid || null }));
+        toast(`${gg} / ${gn}: ${st === "none" ? "디코 없음" : nick[uid] || uid}`); render();
+      } catch { /* q() 가 이미 토스트 */ }
+    };
+    v.querySelectorAll(".m-set").forEach((b) => (b.onclick = () => decide(b.dataset.gg, b.dataset.gn, b.dataset.uid)));
+    v.querySelectorAll(".m-pick").forEach((x) => (x.onchange = () => {
+      const r = rows.find((y) => y.game_guild === x.dataset.gg && y.game_nick === x.dataset.gn);
+      if (r && r.status === "unmatched" && !x.value) return;     // 못 맞춤에서 '디코 없음' 그대로면 아래 버튼으로 한 번에
+      decide(x.dataset.gg, x.dataset.gn, x.value);
+    }));
+    const nr = $("#m-none-rest");
+    if (nr) nr.onclick = async () => {
+      if (!confirm(`못 맞춤 ${un.length}줄을 모두 '디코 없음'으로 확정할까요? (나중에 '사람이 정한 줄'에서 바꿀 수 있어요)`)) return;
+      const n = await q(sb.rpc("web_match_none_rest", { gid: G() })); toast(`${n}줄 '디코 없음' 확정`); render();
+    };
   }
 
   // ---------- 버추얼 벨라 탭: 안내 · 설정(켜기 · 길드원 권한) · 데스노트 · 화이트리스트 ----------
@@ -897,6 +963,7 @@
     const rank = Object.values(people).sort((a, b) => b.sel.total - a.sel.total || b.all.total - a.all.total || a.name.localeCompare(b.name));
     // 출석 보류분: 공격대 스샷에서 디스코드와 못 맞춘 게임 닉 (순위 번호 없이 맨 아래). [출석] · [전체] 따로. 맞춰지면 자동으로 사라지고 위로 올라감.
     const pending = await q(sb.rpc("web_pending_attend", { gid: G(), s: start, e: end })).catch(() => []);
+    const gone = await q(sb.rpc("web_raid_canceled", { gid: G(), s: start, e: end })).catch(() => []);   // 웹에서 뺀 기록 (되살리기)
     const pendingAll = await q(sb.rpc("web_pending_attend_all", { gid: G(), s: start, e: end })).catch(() => pending);
     const pSel = Object.fromEntries(pending.map((x) => [x.nick, x.cnt]));
     const pNicks = pendingAll.map((x) => ({ nick: x.nick, all: x.cnt, sel: pSel[x.nick] || 0 })).sort((a, b) => b.sel - a.sel || b.all - a.all);
@@ -957,9 +1024,13 @@
             ${r.category === "battle" ? `<div class="row" style="padding-left:22px">종류 <select class="set-type">${BATTLE_TYPES.map((t) => `<option ${t === btype(r) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>` : ""}
             <div class="members">${ms.map((m) => `<span class="member">${esc(m.display_name)}<button title="빼기" data-rm="${m.user_id}">×</button></span>`).join("")}</div>
             <div class="row" style="padding-left:22px"><select class="add-who"><option value="">+ 추가할 사람</option>
-              ${rank.filter((p) => !ms.some((m) => m.user_id === p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>
+              ${rank.filter((p) => !ms.some((m) => m.user_id === p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
+              <button class="ghost r-off" style="margin-left:auto">이 기록 빼기</button></div>
           </details>`;
         }).join("") || `<p class="muted">기록 없음</p>`}
+        ${gone.length ? `<details><summary><b>🗑️ 뺀 기록 ${gone.length}</b> <span class="muted small">(출석 · 시트 · 평점 · 다음 출현에서 빠짐 — 데이터는 남아 있어요)</span></summary>
+            ${gone.map((g) => `<div class="row" style="padding-left:22px">${esc(label[g.boss] || g.boss)} <span class="muted">${fmtDate(g.killed_at)} · ${esc(g.by_name || g.by_user || "")} ${fmtDate(g.at)} 뺌${g.msg === "wait" ? " · 디스코드 글은 봇이 곧 지워요" : ""}</span>
+              <button class="r-on" data-rid="${g.raid_id}" data-gone="${g.msg === "done" ? 1 : ""}">되살리기</button></div>`).join("")}</details>` : ""}
       </div>`;
     // 출석 보기 저장 (boss_settings, 길드 전체)
     const saveView = async (patch, msg) => {
@@ -990,12 +1061,24 @@
         await q(sb.from("raid_members").delete().eq("raid_id", rid).eq("user_id", b.dataset.rm));
         toast("명단에서 뺐어요"); render();
       }));
+      d.querySelector(".r-off").onclick = async () => {
+        const r = shown.find((x) => x.id === rid);
+        if (!confirm(`${label[r.boss] || r.boss} ${fmtDate(r.killed_at)} 기록을 뺄까요?
+출석 · 시트 · 평점에서 빠지고${r.kill_id ? ", 그 컷도 빠져 다음 출현은 그 전 컷 기준으로 돌아가요" : ""}. 디스코드 글은 봇이 지워요.
+데이터는 남아서 '뺀 기록'에서 되살릴 수 있어요.`)) return;
+        await q(sb.rpc("web_raid_cancel", { rid, off: true }));
+        toast("기록을 뺐어요"); render();
+      };
       d.querySelector(".add-who").onchange = async (e) => {
         const p = people[e.target.value]; if (!p) return;
         await q(sb.from("raid_members").insert({ raid_id: rid, user_id: p.id, display_name: p.name, joined_at: kstIso(new Date()), added_by: state.me.id }));
         toast(`${p.name} 추가했어요`); render();
       };
     });
+    v.querySelectorAll(".r-on").forEach((b) => (b.onclick = async () => {
+      await q(sb.rpc("web_raid_cancel", { rid: b.dataset.rid, off: false }));
+      toast(b.dataset.gone ? "기록을 되살렸어요 (지워진 디스코드 글은 다시 안 올라가요)" : "기록을 되살렸어요"); render();
+    }));
     const download = (name, rows) => {
       const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
       const a = document.createElement("a");
@@ -1540,7 +1623,7 @@
 
   const MEMBER_TABS = { bosses: memberBoardTab, attendance: memberAttendanceTab, vbella: memberVbellaTab };
 
-  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, admins: adminsTab, servers: serversTab, vbella: vbellaTab };
+  const TABS = { bosses: bossesTab, settings: settingsTab, battles: battlesTab, attendance: attendanceTab, match: matchTab, admins: adminsTab, servers: serversTab, vbella: vbellaTab };
   // 설정 도우미(setup-helper.js)가 각 카드와 같은 함수 · 상수로 읽고 저장하게 빌려줌
   window.BELLA_WEB = { sb, q, G, state, toast, render, kstParts, fmtDate, suggestCats, cleanCats, BATTLE_TYPES, FARM_DEFAULT, FB_GROUPS, FB_REC, FB_MAX, buildTag, mb };
   start();

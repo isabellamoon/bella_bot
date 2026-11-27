@@ -41,6 +41,8 @@ window.SETUP_FLOWS = {
       { flow: "board", label: "⭐ 관리판 보드" },
       { flow: "app", label: "📦 앱 받기 (길드원)" },
       { flow: "score", label: "⭐ 평점", needs: "bellaSaveAttScore" },
+      // 매칭표(게임 명단 ↔ 디스코드): 남은 줄 수만 알려 주고 화면으로 보냄. 고르기 · 저장은 매칭표 화면에서 사람이 직접 (브랜치5 bellaMatchSummary)
+      { flow: "match", label: "🔗 매칭표 확인", needs: "bellaMatchSummary" },
       // 문의하기: 디스코드 /건의하기와 같은 저장. 웹에서 부를 함수(bellaSendSuggestion)가 생기기 전엔 메뉴에 안 보임
       { flow: "suggest", label: "📨 문의하기 (건의 · 오류)", member: true, needs: "bellaSendSuggestion" },
     ],
@@ -191,6 +193,20 @@ window.SETUP_FLOWS = {
         { id: "battle", type: "numbers", when: { step: "mode", in: ["item"] },
           ask: "전투 종류마다 점수를 적어 주세요. (0 ~ 100, 비우면 1점)", from: "battle_types", min: 0, max: 100, blank: 1, unit: "점",
           field: "battle", as: "map", sum: "전투 점수" },
+      ],
+    },
+
+    // ---------- 매칭표 확인 (저장 없음 — 1등/2등은 사람이 매칭표 화면에서 보고 누름) ----------
+    // $match_* = bellaMatchSummary() → {auto, suggest, unmatched, total}, left = suggest + unmatched
+    match: {
+      title: "매칭표", tab: "match", load: [], done: "",
+      steps: [
+        { id: "go", type: "choice",
+          ask: "매칭표에 확인할 줄이 **$match_left개** 남았어요.\n자동 $match_auto · 추천 $match_suggest · 못 찾음 $match_unmatched (전체 $match_total)",
+          options: [
+            { label: "매칭표 열기", go: "match" },
+            { label: "나중에", end: true },
+          ] },
       ],
     },
 
