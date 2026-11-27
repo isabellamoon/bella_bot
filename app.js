@@ -1,4 +1,4 @@
-// 벨라꼬붕 웹 관리 페이지
+// 버추얼 벨라 가이드페이지 (웹 관리 페이지)
 // Supabase 에 직접 연결. 누가 무엇을 볼·고칠 수 있는지는 Supabase 보안 규칙이 정한다.
 // 디스코드 ID(19자리)는 자바스크립트 숫자로 받으면 끝자리가 틀어지므로 항상 ::text 로 받아 문자열로 다룬다.
 (() => {
@@ -154,7 +154,7 @@
   async function selectGuild(gid) {
     state.gid = gid;
     const g = state.guilds.find((x) => x.guild_id === gid);
-    document.title = `${g && g.name ? `[${g.name}] ` : ""}벨라꼬붕 도움받기 (관리자 패널)`;   // 브라우저 탭에도 지금 서버
+    document.title = `${g && g.name ? `[${g.name}] ` : ""}버추얼 벨라 가이드페이지`;   // 브라우저 탭에도 지금 서버
     // 길드원(관리자 아님): 보스 현황(읽기) · 내 출석 · 버추얼 벨라 탭만
     state.member = !!g && g.role === "member";
     const MEMBER_OK = ["bosses", "attendance", "vbella"];
