@@ -220,3 +220,7 @@ b.blk-sel { color: #16a34a; } b.blk-all { color: #d97706; }
 .glossary { max-width: 560px; margin: 26px auto 0; padding-top: 16px; border-top: 1px solid var(--line); text-align: left; font-size: 14px; }
 .glossary dt { font-weight: 700; color: var(--accent); margin-top: 8px; }
 .glossary dd { margin: 2px 0 0; color: var(--muted); line-height: 1.6; }
+
+/* 긴 목록 접기 · 펼치기 (출석 탭 순위표 · 기록 목록) */
+details.fold > summary { cursor: pointer; padding: 4px 0; }
+details.fold > summary h2 { margin: 0; }

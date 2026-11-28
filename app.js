@@ -6,6 +6,12 @@
   const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // 긴 목록 접기 · 펼치기 (순위표 · 기록 목록): 고른 상태를 이 브라우저에 기억
+  const foldOpen = (k, def) => { try { const v = localStorage.getItem("fold:" + k); return v === null ? def : v === "1"; } catch { return def; } };
+  document.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (d instanceof HTMLDetailsElement && d.classList.contains("fold") && d.dataset.fold) { try { localStorage.setItem("fold:" + d.dataset.fold, d.open ? "1" : "0"); } catch {} }
+  }, true);
   const WD = "월화수목금토일";
   const state = { me: null, guilds: [], gid: null, owner: false, tab: "bosses" };
 
@@ -1029,15 +1035,16 @@
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
         <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some(isOff) ? ` · 레이드 Off 보스 ${shown.filter(isOff).length}회 (안 셈)` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
         <p class="muted small">시트 '주간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
+        <details class="fold" data-fold="rank" ${foldOpen("rank", true) ? "open" : ""}><summary><b>순위표</b> <span class="muted small">${rank.length + pNicks.length}명 · 눌러서 접기 · 펼치기</span></summary>
         <div class="table-wrap"><table class="rank two-blk"><thead>
           <tr><th rowspan="2">#</th><th rowspan="2">이름</th><th colspan="${HEAD.length}" class="blk-sel">[출석]</th><th colspan="${HEAD.length}" class="blk-all">[전체]</th><th rowspan="2">디스코드</th></tr>
           <tr>${HEAD.map((h) => `<th class="blk-sel">${esc(h)}</th>`).join("")}${HEAD.map((h) => `<th class="blk-all">${esc(h)}</th>`).join("")}</tr></thead><tbody>
           ${rank.map((p) => `<tr><td>${p.sel.total ? ranked.indexOf(p) + 1 : ""}</td><td>${esc(p.name)}</td>${cells(p.sel, 0, true).map((c, j) => `<td class="blk-sel">${j === 0 ? `<b>${c}</b>` : c}</td>`).join("")}${cells(p.all, 0, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td>${esc(p.name)}</td></tr>`).join("") || (pNicks.length ? "" : `<tr><td colspan="${ncol}" class="muted">기록 없음</td></tr>`)}
           ${pNicks.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td>${cells(blk(), p.sel, true).map((c) => `<td class="blk-sel">${c}</td>`).join("")}${cells(blk(), p.all, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td class="muted">(미확인)</td></tr>`).join("")}
-        </tbody></table></div>
+        </tbody></table></div></details>
       </div>
       <div class="card">
-        <h2>레이드·전투·콘텐츠 기록</h2>
+        <details class="fold" data-fold="recs" ${foldOpen("recs", false) ? "open" : ""}><summary><h2 style="display:inline">레이드·전투·콘텐츠 기록</h2> <span class="muted small">${shown.length}개 · 눌러서 접기 · 펼치기</span></summary>
         <p class="muted small">기록은 전부 보여요. '출석 제외'는 지금 출석 보기에서 빠져 순위에 안 세는 기록이에요. 이름 옆 ×로 명단에서 빼고, 아래 칸에서 이번 달 참여자 중 골라 넣을 수 있어요. 전투는 종류(출석표)를 바꿀 수 있어요. 디스코드 메시지의 명단은 다음에 그 메시지가 갱신될 때 맞춰져요.</p>
         ${shown.map((r) => {
           const ms = byRaid[r.id] || [];
@@ -1054,6 +1061,7 @@
         ${gone.length ? `<details><summary><b>🗑️ 뺀 기록 ${gone.length}</b> <span class="muted small">(출석 · 시트 · 평점 · 다음 출현에서 빠짐 — 데이터는 남아 있어요)</span></summary>
             ${gone.map((g) => `<div class="row" style="padding-left:22px">${esc(label[g.boss] || g.boss)} <span class="muted">${fmtDate(g.killed_at)} · ${esc(g.by_name || g.by_user || "")} ${fmtDate(g.at)} 뺌${g.msg === "wait" ? " · 디스코드 글은 봇이 곧 지워요" : ""}</span>
               <button class="r-on" data-rid="${g.raid_id}" data-gone="${g.msg === "done" ? 1 : ""}">되살리기</button></div>`).join("")}</details>` : ""}
+        </details>
       </div>`;
     // 출석 보기 저장 (boss_settings, 길드 전체)
     const saveView = async (patch, msg) => {
