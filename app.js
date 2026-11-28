@@ -165,6 +165,8 @@
     sel.onchange = () => { localStorage.setItem("gid", sel.value); selectGuild(sel.value); };
     $("#tabs").onclick = (e) => {
       const b = e.target.closest("button[data-tab]"); if (!b) return;
+      if (state.tab === "settings" && b.dataset.tab !== "settings" && settingsDirty.size && !confirm("저장 안 한 설정이 있어요. 저장하지 않고 다른 탭으로 갈까요?")) return;
+      settingsDirty = new Set();
       document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
       state.tab = b.dataset.tab; render();
     };
@@ -356,9 +358,21 @@
   }
 
   // ---------- 설정 ----------
+  // 카드마다 저장 버튼 (그 카드 값만 저장). 고친 카드는 '바꾼 것 있음', 저장 안 한 채 탭 이동 · 페이지 닫기면 한 번 물음
+  const NICK_RULES = ["{길드}/{닉}", "{닉}/{길드}", "[{길드}]{닉}", "({길드}){닉}", "{길드}*{닉}", "{길드} {닉}"];
+  const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nickRuleRe = (rule, tags) => {
+    if (!rule || !rule.includes("{닉}")) return null;
+    const alt = tags.length ? tags.map(reEsc).join("|") : "[^\\s]+?";
+    const body = rule.split(/(\{길드\}|\{닉\})/).map((x) => x === "{길드}" ? `(?:${alt})` : x === "{닉}" ? "(.+?)" : reEsc(x).replace(/ /g, "\\s*")).join("");
+    try { return new RegExp(`^\\s*${body}\\s*$`); } catch { return null; }
+  };
+  let settingsDirty = new Set();
+  window.addEventListener("beforeunload", (e) => { if (settingsDirty.size && state.tab === "settings") { e.preventDefault(); e.returnValue = ""; } });
   async function settingsTab(v) {
+    settingsDirty = new Set();
     const [rows, chans] = await Promise.all([
-      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,overdue_alert,raid_minutes,greet_channels,game,home_srv,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days,ms_days,att_from").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("alert_channel_id::text,raid_channel_id::text,board_channel_id::text,shot_channel_id::text,voice_channel_id::text,alert_offsets,alert_inter,alert_spawn,overdue_alert,raid_minutes,greet_channels,game,home_srv,home_srv_name,nick_rule,nick_tags,virtual_bella,vb_member_white,vb_member_note,vb_member_board,vb_member_download,vb_member_rally,raid_rule,bella_open,bella_close,cp_start,cp_days,ms_days,att_from").eq("guild_id", G())),
       q(sb.from("web_channels").select("channel_id::text,name,kind,position,bot_ok").eq("guild_id", G()).order("position")),
     ]);
     const s = rows[0] || {};
@@ -368,18 +382,31 @@
     const greetSet = new Set((s.greet_channels || "").split(",").filter(Boolean));
     const GAMES = [["zeus", "제우스: 오만의 신"], ["odin", "오딘 (준비 중)"], ["sol", "솔: 인첸트 (준비 중)"],
       ["archeage", "아키에이지 크로니클 (준비 중)"], ["chrono", "크로노 오디세이 (준비 중)"], ["etc", "기타"]];
+    const rule = s.nick_rule || "";
+    const saveBtn = (k) => `<p class="card-save"><span class="muted small dirty-note"></span><button class="primary" data-save="${k}">저장</button></p>`;
     v.innerHTML = `
-      <div class="card">
+      <div class="card" data-card="game">
         <h2>🎮 게임</h2>
         <p class="muted small">제우스 전용 기능(일요일 길드전 · 기본 보스 목록 · 현황판 인식)은 제우스 서버에서만 켜져요. 준비 중인 게임은 지원되면 자동으로 켜져요.</p>
         <select id="s-game"><option value="">— 미설정 —</option>${GAMES.map(([c, n]) => `<option value="${c}" ${s.game === c ? "selected" : ""}>${n}</option>`).join("")}</select>
+        ${saveBtn("game")}
       </div>
-      <div class="card">
-        <h2>🌐 서버 이전 등록</h2>
-        <p class="muted small">우리 길드의 게임 서버(꼬리표)를 적어 주세요. 버추얼 벨라 앱이 '우리 서버'로 써요.</p>
-        <label class="field">게임 서버 (예: 포세1)<input id="s-homesrv" maxlength="20" placeholder="포세1" value="${esc(s.home_srv || "")}"></label>
+      <div class="card" data-card="srv">
+        <h2>🌐 서버 이전 및 규칙 등록</h2>
+        <p class="muted small">우리 길드의 게임 서버와 디스코드 닉네임 규칙을 적어 주세요. 서버 꼬리표는 버추얼 벨라 앱이 '우리 서버'로 쓰고, 닉네임 규칙은 봇이 디스코드 닉에서 게임 닉을 찾을 때 써요.</p>
+        <div class="grid">
+          <label class="field">게임 서버 꼬리표 (예: 포세1)<input id="s-homesrv" maxlength="20" placeholder="포세1" value="${esc(s.home_srv || "")}"></label>
+          <label class="field">게임 서버 이름 (예: 포세이돈 01)<input id="s-srvname" maxlength="30" placeholder="포세이돈 01" value="${esc(s.home_srv_name || "")}"></label>
+        </div>
+        <label class="field">디스코드 닉네임 규칙 <span class="muted small">{길드} = 길드 꼬리표 · {닉} = 게임 닉</span>
+          <div class="row"><select id="s-nrule-pick"><option value="">— 고르기 —</option>${NICK_RULES.map((r) => `<option ${r === rule ? "selected" : ""}>${esc(r)}</option>`).join("")}<option value="custom" ${rule && !NICK_RULES.includes(rule) ? "selected" : ""}>직접 적기</option></select>
+            <input id="s-nrule" maxlength="40" placeholder="{길드}/{닉}" value="${esc(rule)}" style="flex:1"></div></label>
+        <label class="field">길드 꼬리표 낱말 (쉼표로 · 연합이면 여러 개)<input id="s-ntags" maxlength="80" placeholder="아래, 폭군" value="${esc(s.nick_tags || "")}"></label>
+        <label class="field">넣어 보기 <span class="muted small">디스코드 닉을 적으면 봇이 읽을 게임 닉이 보여요 (저장 안 됨)</span><input id="s-ntest" placeholder="아래/머리아래들킴"></label>
+        <p class="muted small" id="s-nprev"></p>
+        ${saveBtn("srv")}
       </div>
-      <div class="card">
+      <div class="card" data-card="rule">
         <h2>출석 규칙</h2>
         <p class="muted small">요일·시각 보스(케르베로스 · 메데이아 등 정해진 시각에 나오는 보스)를 어떻게 출석으로 칠지 정해요. 리젠 보스는 두 규칙 모두 컷이 들어오면 레이드 등록이 열려요.</p>
         <label><input type="radio" name="rule" value="bella" ${(s.raid_rule || "bella") === "bella" ? "checked" : ""}> <b>벨라 룰</b> (기본) — 출현 n분 전에 레이드 등록이 자동으로 열리고, 출현 m분 뒤 닫혀요. 요일·시각 보스는 컷을 받지 않아요.</label><br>
@@ -388,8 +415,9 @@
           <label class="field">벨라 룰: 출현 몇 분 전에 열기<input id="s-bopen" type="number" min="1" max="120" value="${s.bella_open ?? 10}"></label>
           <label class="field">벨라 룰: 출현 몇 분 뒤 닫기<input id="s-bclose" type="number" min="1" max="120" value="${s.bella_close ?? 5}"></label>
         </div>
+        ${saveBtn("rule")}
       </div>
-      <div class="card">
+      <div class="card" data-card="cp">
         <h2>📍 출석 구간 (체크포인트)</h2>
         <p class="muted small">기록은 지우지 않고 출석 순위를 구간으로 나눠 봐요. 시작일부터 N일마다(그날 0시) 자동으로 나뉘고, 디스코드 관리판 [📍 체크포인트]로 지금 시각을 수동으로 더 찍을 수 있어요. 시작일을 비우면 자동 주기는 꺼져요.</p>
         <div class="grid">
@@ -400,20 +428,23 @@
         </div>
         <p class="muted small">마일스톤: 구간 시작부터 N일마다, 그리고 구간이 끝날 때 디스코드 알림 채널에 그때까지의 출석 순위(출석 보기 기준 · 전체 같이)를 올려요.
           ${s.att_from ? `<br>🗄️ ${esc(s.att_from.slice(5, 10).replace("-", "/"))} 0시 이전 기록은 보관 중이에요 — 출석 순위 · 기록 · 구간 · 구글 시트 · 디스코드 어디에도 안 보이고, 지우진 않았어요.` : ""}</p>
+        ${saveBtn("cp")}
       </div>
-      <div class="card">
+      <div class="card" data-card="alert">
         <h2>🔔 보스 알림</h2>
         <p class="muted small">출현 몇 분 전에 알릴지. 보스마다 인터 · 본토는 아래 보스 목록에서 골라요.</p>
         <div class="alert-line"><b>인터</b>${chipEdit("s-inter", s.alert_inter ?? "20,10")}</div>
         <div class="alert-line"><b>본토</b>${chipEdit("s-main", s.alert_offsets ?? "5,1")}</div>
         <label class="switch"><input type="checkbox" id="s-spawn" ${(s.alert_spawn ?? 1) ? "checked" : ""}><span class="knob"></span> 출현 시각에도 알림</label>
         <label class="switch"><input type="checkbox" id="s-overdue" ${(s.overdue_alert ?? 1) ? "checked" : ""}><span class="knob"></span> 컷이 30분 넘게 안 올라온 보스 글</label>
+        ${saveBtn("alert")}
       </div>
-      <div class="card">
+      <div class="card" data-card="join">
         <h2>🤝 참여</h2>
         <label class="field narrow">컷 후 참여 받는 시간 (분)<input id="s-raid" type="number" min="1" max="120" value="${s.raid_minutes ?? 5}"></label>
+        ${saveBtn("join")}
       </div>
-      <div class="card">
+      <div class="card" data-card="chan">
         <h2>채널</h2>
         <p class="muted small">채널을 바꾼 뒤에는 디스코드 관리판 [🔄 새로고침]을 눌러 주세요. 시간표는 1분 안에 새 채널로 옮겨져요.</p>
         <div class="grid">
@@ -423,8 +454,9 @@
           <label class="field">📸 스크린샷<select id="c-shot">${opts(text, s.shot_channel_id)}</select></label>
           <label class="field">🔊 상주·집결·TTS<select id="c-voice">${opts(voice, s.voice_channel_id)}</select></label>
         </div>
+        ${saveBtn("chan")}
       </div>
-      <div class="card">
+      <div class="card" data-card="greet">
         <h2>입장 인사</h2>
         <div class="row">
           <label><input type="radio" name="greet" value="all" ${greet === "all" ? "checked" : ""}> 모든 음성 채널</label>
@@ -432,8 +464,8 @@
           <label><input type="radio" name="greet" value="off" ${greet === "off" ? "checked" : ""}> 끄기</label>
         </div>
         <div class="chips" style="margin-top:10px">${voice.map((c) => `<label><input type="checkbox" class="g-ch" value="${c.channel_id}" ${greetSet.has(c.channel_id) ? "checked" : ""}> ${esc(c.name)}${c.bot_ok === 0 ? " ⚠️" : ""}</label>`).join("") || `<span class="muted small">음성 채널 정보가 아직 없어요</span>`}</div>
+        ${saveBtn("greet")}
       </div>
-      <p><button class="primary" id="s-save">설정 저장</button></p>
       <div class="card" id="m-card"><h2>📣 알림 멘션</h2><p class="muted small">불러오는 중…</p></div>
       <div class="card" id="g-card"><h2>📊 구글 시트</h2><p class="muted small">불러오는 중…</p></div>
       <div class="card" id="fb-card"><h2>⭐ 관리판 보드</h2><p class="muted small">불러오는 중…</p></div>`;
@@ -441,27 +473,64 @@
     sheetCard();
     favBoardCard($("#fb-card"));
     v.querySelectorAll(".chip-edit").forEach(chipInit);
-    $("#s-save").onclick = async () => {
-      const csv = (id) => $(id)._list.join(",");
-      const mode = v.querySelector("input[name=greet]:checked").value;
-      const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
-      const val = (id) => $(id).value || null;
-      const homeSrv = ($("#s-homesrv").value || "").replace(/[\[\]\s]/g, "") || null;
-      if (homeSrv && !/^[가-힣]{2}[0-9]$/.test(homeSrv)) { toast("서버 꼬리표는 포세1 · 아테3 처럼 한글 2자 + 숫자 1자리만 받아요"); return; }
-      await q(sb.from("boss_settings").upsert({
-        guild_id: G(), game: $("#s-game").value || null,
-        home_srv: homeSrv, alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, overdue_alert: $("#s-overdue").checked ? 1 : 0, raid_minutes: Math.max(1, +$("#s-raid").value || 5),
-        raid_rule: v.querySelector("input[name=rule]:checked").value,
-        cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
-        ms_days: Math.min(366, Math.max(0, +$("#s-msdays").value || 0)),
-        ...($("#s-attfrom") ? { att_from: $("#s-attfrom").value ? `${$("#s-attfrom").value}T00:00:00+09:00` : null } : {}),   // 봇 주인만 칸이 있음
-        bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)),
-        alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"),
-        shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice"),
-        greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(","),
-      }, { onConflict: "guild_id" }));
-      toast("설정을 저장했어요");
+    // 닉네임 규칙: 고르면 칸에 채움 · 넣어 보기 미리보기
+    const tagsOf = () => ($("#s-ntags").value || "").split(/[,、]/).map((x) => x.trim()).filter(Boolean);
+    const preview = () => {
+      const r = $("#s-nrule").value.trim(), tags = tagsOf(), t = $("#s-ntest").value.trim();
+      const re = nickRuleRe(r, tags), out = $("#s-nprev");
+      if (!r) { out.textContent = "규칙을 비우면 봇이 지금처럼 여러 사람 닉에서 꼬리표를 짐작해요."; return; }
+      if (!re) { out.textContent = "⚠️ 규칙에 {닉} 이 있어야 해요."; return; }
+      const ex = r.replace("{길드}", tags[0] || "아래").replace("{닉}", "머리아래들킴");
+      if (!t) { out.textContent = `예: ${ex} → 머리아래들킴`; return; }
+      const m = t.match(re);
+      out.textContent = m ? `${t} → ${m[1].trim()}` : `${t} → 규칙과 안 맞아요 (봇이 지금처럼 짐작해요)`;
     };
+    $("#s-nrule-pick").onchange = (e) => { if (e.target.value && e.target.value !== "custom") $("#s-nrule").value = e.target.value; preview(); };
+    ["#s-nrule", "#s-ntags", "#s-ntest"].forEach((id) => ($(id).oninput = preview));
+    preview();
+    // 고친 카드 표시
+    const mark = (card, on) => {
+      const k = card.dataset.card; if (!k) return;
+      if (on) settingsDirty.add(k); else settingsDirty.delete(k);
+      const n = card.querySelector(".dirty-note"); if (n) n.textContent = on ? "바꾼 것 있음 — 저장해야 들어가요" : "";
+    };
+    v.querySelectorAll(".card[data-card]").forEach((card) => {
+      const on = (e) => { if (e.target.id !== "s-ntest") mark(card, true); };
+      card.addEventListener("input", on); card.addEventListener("change", on);
+      card.addEventListener("click", (e) => { if (e.target.closest(".chip-edit button")) mark(card, true); });
+    });
+    const csv = (id) => $(id)._list.join(",");
+    const val = (id) => $(id).value || null;
+    const SAVE = {
+      game: () => ({ game: $("#s-game").value || null }),
+      srv: () => {
+        const homeSrv = ($("#s-homesrv").value || "").replace(/[\[\]\s]/g, "") || null;
+        if (homeSrv && !/^[가-힣]{2}[0-9]$/.test(homeSrv)) throw new Error("서버 꼬리표는 포세1 · 아테3 처럼 한글 2자 + 숫자 1자리만 받아요");
+        const r = $("#s-nrule").value.trim();
+        if (r && !nickRuleRe(r, tagsOf())) throw new Error("닉네임 규칙에 {닉} 이 있어야 해요. 예: {길드}/{닉}");
+        return { home_srv: homeSrv, home_srv_name: $("#s-srvname").value.trim() || null, nick_rule: r || null, nick_tags: tagsOf().join(",") || null };
+      },
+      rule: () => ({ raid_rule: v.querySelector("input[name=rule]:checked").value,
+        bella_open: Math.min(120, Math.max(1, +$("#s-bopen").value || 10)), bella_close: Math.min(120, Math.max(1, +$("#s-bclose").value || 5)) }),
+      cp: () => ({ cp_start: $("#s-cpstart").value || null, cp_days: $("#s-cpstart").value ? Math.min(366, Math.max(1, +$("#s-cpdays").value || 14)) : 0,
+        ms_days: Math.min(366, Math.max(0, +$("#s-msdays").value || 0)),
+        ...($("#s-attfrom") ? { att_from: $("#s-attfrom").value ? `${$("#s-attfrom").value}T00:00:00+09:00` : null } : {}) }),   // 보관 기준일은 봇 주인만 칸이 있음
+      alert: () => ({ alert_inter: csv("#s-inter"), alert_offsets: csv("#s-main"), alert_spawn: $("#s-spawn").checked ? 1 : 0, overdue_alert: $("#s-overdue").checked ? 1 : 0 }),
+      join: () => ({ raid_minutes: Math.max(1, +$("#s-raid").value || 5) }),
+      chan: () => ({ alert_channel_id: val("#c-alert"), raid_channel_id: val("#c-raid"), board_channel_id: val("#c-board"), shot_channel_id: val("#c-shot"), voice_channel_id: val("#c-voice") }),
+      greet: () => {
+        const mode = v.querySelector("input[name=greet]:checked").value;
+        const picked = [...v.querySelectorAll(".g-ch:checked")].map((x) => x.value);
+        return { greet_channels: mode === "all" ? null : mode === "off" ? "" : picked.join(",") };
+      },
+    };
+    v.querySelectorAll("button[data-save]").forEach((b) => (b.onclick = async () => {
+      const k = b.dataset.save, card = b.closest(".card");
+      let patch; try { patch = SAVE[k](); } catch (e) { toast(e.message, true); return; }
+      await q(sb.from("boss_settings").upsert({ guild_id: G(), ...patch }, { onConflict: "guild_id" }));
+      mark(card, false);
+      toast(`${card.querySelector("h2").textContent.trim()} 저장했어요`);
+    }));
   }
 
   // ---------- ⭐ 관리판 보드 (디스코드 관리판에 보일 버튼 최대 10개 · 순서) ----------
@@ -470,7 +539,7 @@
     ["시작·운영", [["quick", "⚡ 한 번에 시작"], ["battle", "🛡️ 전투 예약"], ["sheet", "📊 구글 연결"], ["checkpoint", "📍 체크포인트"],
       ["cleanup", "🧹 게시판 청소"], ["refresh", "🔄 새로고침"], ["vbella", "✒️ 앱 · 길드원 권한"], ["vbweb", "🌐 버추얼 벨라(웹) 바로가기"]]],
     ["채널", [["chat", "💬 채팅 채널"], ["voice", "🔊 음성 채널"], ["mention", "📣 알림 멘션"]]],
-    ["서버", [["admin", "🛡️ 관리자"], ["homesrv", "🌐 서버 이전 등록"], ["invite", "🔗 초대 링크"], ["leave", "🚪 정리하고 내보내기"]]],
+    ["서버", [["admin", "🛡️ 관리자"], ["homesrv", "🌐 서버 이전 및 규칙 등록"], ["invite", "🔗 초대 링크"], ["leave", "🚪 정리하고 내보내기"]]],
     ["설정", [["game", "🎮 게임"], ["timing", "⏱️ 알림·참여"], ["bossnames", "🏷️ 보스 이름·별명"]]],
   ];
   const FB_REC = ["quick", "battle", "sheet", "refresh", "vbella", "chat", "voice", "mention", "timing", "bossnames"];

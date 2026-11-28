@@ -233,3 +233,7 @@ b.blk-sel { color: #16a34a; } b.blk-all { color: #d97706; }
 td.drag { cursor: grab; user-select: none; color: var(--muted, #aaa); font-size: 18px; padding: 0 6px; text-align: center; touch-action: none; }
 td.drag:active { cursor: grabbing; }
 tr.sortable-ghost { opacity: .4; }
+
+/* 설정 탭: 카드마다 저장 (오른쪽 아래) · 바꾼 것 있음 */
+.card-save { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin: 12px 0 0; }
+.card-save .dirty-note { color: var(--warn, #f0b429); }
