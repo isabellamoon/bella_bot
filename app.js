@@ -1102,7 +1102,7 @@
     const nt = (t) => counted.filter((r) => r.category === "battle" && btype(r) === t).length;
     const ranked = rank.filter((p) => p.sel.total);
     const cells = (b, pend, sel) => [b.total, b.boss, b.battle, ...BATTLE_TYPES.map((t) => (sel && !inT(t) ? "-" : b.t[t] || 0)), pend];
-    const HEAD = ["합계", "보스", "전투", ...BATTLE_TYPES, "보류분"];
+    const HEAD = ["합계", "보스", "전투", ...BATTLE_TYPES, "기타누락"];
     const ncol = 3 + HEAD.length * 2;
     const chk = (cls, val, on) => `<label class="chk"><input type="checkbox" class="${cls}" value="${esc(val)}" ${on ? "checked" : ""}> ${esc(label[val] || val)}</label>`;
     const extra = av.boss_view === "farmers" ? av.farm.filter((n) => !label[n]) : [];   // 목록에 없는 이름(지운 보스 등)도 보이게
@@ -1135,13 +1135,13 @@
             ${state.botOwner && af ? `<option value="archive" ${state.period === "archive" ? "selected" : ""}>🗄️ 보관 기록 (${esc(afMd)} 전 · 봇 주인만)</option>` : ""}</select>
           <input type="month" id="a-month" value="${month}" ${state.period === "month" ? "" : "hidden"}>
           <button id="a-csv1">명단 CSV</button><button id="a-csv2">순위 CSV</button></div>
-        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 디스코드 미확인 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some(isOff) ? ` · 레이드 Off 보스 ${shown.filter(isOff).length}회 (안 셈)` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
-        <p class="muted small">시트 '주간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 보류분 = 공격대 사진에 있었는데 디스코드와 아직 못 맞춘 횟수.</p>
+        <p class="muted">${esc(periodLabel)} · ⚔️ 보스레이드 ${nb}회${types.map((t) => ` · 🛡️ ${esc(t)} ${nt(t)}회`).join("")} · 참여한 사람 ${rank.length}명${pNicks.length ? ` · 기타누락자 ${pNicks.length}명` : ""}${shown.filter(excluded).length ? ` · 출석 제외 ${shown.filter(excluded).length}회` : ""}${shown.some(isOff) ? ` · 레이드 Off 보스 ${shown.filter(isOff).length}회 (안 셈)` : ""}${shown.some((r) => r.category === "event") ? ` · 📋 콘텐츠 참여 ${shown.filter((r) => r.category === "event").length}회 (순위엔 안 넣음)` : ""}</p>
+        <p class="muted small">시트 '주간 순위'와 같은 순서예요. <b class="blk-sel">[출석]</b> = 위 출석 보기로 센 출석(순위 기준, '-' = 이 보기에서 안 세는 종류) · <b class="blk-all">[전체]</b> = 빠진 보스 · 전투까지 다 센 참여. 기타누락 = 공격대 사진에 있었는데 디스코드와 못 맞춘 횟수 (기타누락자는 순위 · 평점에 안 들어가고, 디스코드에서 맞춰지면 그때 소급돼요).</p>
         <div class="table-wrap"><table class="rank two-blk"><thead>
           <tr><th rowspan="2">#</th><th rowspan="2">이름</th><th colspan="${HEAD.length}" class="blk-sel">[출석]</th><th colspan="${HEAD.length}" class="blk-all">[전체]</th><th rowspan="2">디스코드</th></tr>
           <tr>${HEAD.map((h) => `<th class="blk-sel">${esc(h)}</th>`).join("")}${HEAD.map((h) => `<th class="blk-all">${esc(h)}</th>`).join("")}</tr></thead><tbody>
           ${rank.map((p) => `<tr><td>${p.sel.total ? ranked.indexOf(p) + 1 : ""}</td><td>${esc(p.name)}</td>${cells(p.sel, 0, true).map((c, j) => `<td class="blk-sel">${j === 0 ? `<b>${c}</b>` : c}</td>`).join("")}${cells(p.all, 0, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td>${esc(p.name)}</td></tr>`).join("") || (pNicks.length ? "" : `<tr><td colspan="${ncol}" class="muted">기록 없음</td></tr>`)}
-          ${pNicks.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td>${cells(blk(), p.sel, true).map((c) => `<td class="blk-sel">${c}</td>`).join("")}${cells(blk(), p.all, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td class="muted">(미확인)</td></tr>`).join("")}
+          ${pNicks.map((p) => `<tr class="pending-row"><td></td><td>${esc(p.nick)}</td>${cells(blk(), p.sel, true).map((c) => `<td class="blk-sel">${c}</td>`).join("")}${cells(blk(), p.all, false).map((c) => `<td class="blk-all">${c}</td>`).join("")}<td class="muted">(기타누락자)</td></tr>`).join("")}
         </tbody></table></div>
       </div>
       <div class="card">
@@ -1224,7 +1224,7 @@
     const csvHead = ["순위", "이름", ...HEAD.map((h) => `[출석] ${h}`), ...HEAD.map((h) => `[전체] ${h}`), "디스코드"];
     $("#a-csv2").onclick = () => download(fname("출석순위"), [csvHead,
       ...rank.map((p) => [p.sel.total ? ranked.indexOf(p) + 1 : "", p.name, ...cells(p.sel, 0, true), ...cells(p.all, 0, false), p.name]),
-      ...pNicks.map((p) => ["", p.nick, ...cells(blk(), p.sel, true), ...cells(blk(), p.all, false), "(미확인)"])]);
+      ...pNicks.map((p) => ["", p.nick, ...cells(blk(), p.sel, true), ...cells(blk(), p.all, false), "(기타누락자)"])]);
   }
 
   // 출석 분류 (봇 att_view.py 의 suggest_cats · clean_cats 와 같은 값) — 구글 시트 '요약' 보기 칸 · '주간 순위' 기준
