@@ -221,6 +221,10 @@ b.blk-sel { color: #16a34a; } b.blk-all { color: #d97706; }
 .glossary dt { font-weight: 700; color: var(--accent); margin-top: 8px; }
 .glossary dd { margin: 2px 0 0; color: var(--muted); line-height: 1.6; }
 
-/* 긴 목록 접기 · 펼치기 (출석 탭 순위표 · 기록 목록) */
-details.fold > summary { cursor: pointer; padding: 4px 0; }
-details.fold > summary h2 { margin: 0; }
+/* 카드 접기 · 펼치기: 오른쪽 위 ▼ / ▶ — 접으면 제목 줄만 남김 */
+.card { position: relative; }
+.card > .fold-btn { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; padding: 0; border-radius: 8px; background: transparent; border: 1px solid var(--line); color: var(--muted, #aaa); font-size: 13px; line-height: 1; cursor: pointer; z-index: 2; }
+.card > .fold-btn:hover { color: inherit; border-color: currentColor; }
+.card.folded > :not(.fold-btn):not(:nth-child(2)) { display: none !important; }
+.card.folded { padding-bottom: 12px; }
+.card > .fold-btn + * { padding-right: 40px; }
