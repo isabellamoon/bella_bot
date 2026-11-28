@@ -228,3 +228,8 @@ b.blk-sel { color: #16a34a; } b.blk-all { color: #d97706; }
 .card.folded > :not(.fold-btn):not(:nth-child(2)) { display: none !important; }
 .card.folded { padding-bottom: 12px; }
 .card > .fold-btn + * { padding-right: 40px; }
+
+/* 보스 목록 순서 끌기 손잡이 */
+td.drag { cursor: grab; user-select: none; color: var(--muted, #aaa); font-size: 18px; padding: 0 6px; text-align: center; touch-action: none; }
+td.drag:active { cursor: grabbing; }
+tr.sortable-ghost { opacity: .4; }

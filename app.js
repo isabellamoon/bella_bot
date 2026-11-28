@@ -6,6 +6,12 @@
   const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // 보스 순서 (보스 목록에서 끌어서 정함, boss_settings.boss_order = 이름 JSON 목록). 목록에 없는 보스는 원래 순서대로 뒤에
+  const orderBosses = (list, ord) => {
+    let o = []; try { o = JSON.parse(ord || "[]"); } catch {}
+    const ix = new Map((Array.isArray(o) ? o : []).map((n, i) => [n, i]));
+    return list.map((b, i) => [b, ix.has(b.name) ? ix.get(b.name) : 1e6 + i]).sort((a, b) => a[1] - b[1]).map((x) => x[0]);
+  };
   // 카드 접기 · 펼치기: 모든 카드 오른쪽 위 ▼ / ▶. 제목 줄(첫 칸)만 남기고 접음. 고른 상태는 이 브라우저에 기억 (카드 제목 기준, 숫자는 빼고)
   const foldKey = (card) => {
     const h = card.querySelector("h2, h3");
@@ -222,7 +228,8 @@
     const rows = await q(sb.from("bosses").select("name,respawn_min,aliases,hidden_until,schedule,display,wait_first,kind,alert_offsets,raid_on").eq("guild_id", G()).order("respawn_min").order("name"));
     const now = kstIso(new Date());
     // 알림 칸이 비면 구분(인터 · 본토) 기본값을 씀 → 그 값을 흐린 글씨로 보여 줌 (설정 탭 '보스 알림'과 같은 기본값)
-    const st = ((await sb.from("boss_settings").select("alert_offsets,alert_inter").eq("guild_id", G())).data || [])[0] || {};
+    const st = ((await sb.from("boss_settings").select("alert_offsets,alert_inter,boss_order").eq("guild_id", G())).data || [])[0] || {};
+    rows.splice(0, rows.length, ...orderBosses(rows, st.boss_order));   // 관리자가 끌어서 정한 순서 (웹에서만)
     const fmtOffs = (v) => v === "" ? "없음" : v.split(",").join(", ");
     const defOffs = { main: fmtOffs(st.alert_offsets ?? "5,1"), inter: fmtOffs(st.alert_inter ?? "20,10") };
     const offsPh = (kind) => `기본 ${defOffs[kind === "inter" ? "inter" : "main"]}`;
@@ -232,10 +239,11 @@
         <p class="muted small">리젠: <code>8시간</code> <code>1시간 30분</code> <code>미정</code> · 요일·시각 보스: <code>화 21시</code> <code>매일 0시, 12시, 18시</code>.
           표시 이름은 메시지에 보일 이름, 별명은 <code>/컷</code>·음성·스크린샷 인식용(쉼표로 구분).</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>보스</th><th>구분</th><th>표시 이름</th><th>리젠 / 일정</th><th title="비우면 구분 값 (설정의 인터 · 본토)">알림 (분 전)</th><th>별명</th><th title="Off: 디스코드 레이드 모집 글 · 앱 참여(출석) 칩이 안 떠요. 컷 · 현황판 · 다음 출현은 그대로. 이미 열린 레이드는 그대로예요.">레이드</th><th>상태</th><th></th></tr></thead>
+          <thead><tr><th title="왼쪽 ⠿ 를 끌어서 순서를 바꿔요 (평점 칸도 같은 순서)"></th><th>보스</th><th>구분</th><th>표시 이름</th><th>리젠 / 일정</th><th title="비우면 구분 값 (설정의 인터 · 본토)">알림 (분 전)</th><th>별명</th><th title="Off: 디스코드 레이드 모집 글 · 앱 참여(출석) 칩이 안 떠요. 컷 · 현황판 · 다음 출현은 그대로. 이미 열린 레이드는 그대로예요.">레이드</th><th>상태</th><th></th></tr></thead>
           <tbody>${rows.map((b) => {
             const waiting = !!b.wait_first, hidden = !waiting && b.hidden_until && b.hidden_until > now;
             return `<tr data-name="${esc(b.name)}" class="${hidden || waiting ? "hidden-boss" : ""}">
+              <td class="drag" title="끌어서 순서 바꾸기">⠿</td>
               <td><b>${esc(b.name)}</b></td>
               <td><select name="kind" class="kind-sel"><option value="main" ${b.kind === "inter" ? "" : "selected"}>본토</option><option value="inter" ${b.kind === "inter" ? "selected" : ""}>인터</option></select></td>
               <td><input name="display" value="${esc(b.display || "")}" placeholder="${esc(b.name)}"></td>
@@ -263,6 +271,16 @@
         <p><button class="primary" id="nb-add">추가</button></p>
       </div>`;
     const aliasList = (t) => t.split(/[,/、]/).map((x) => x.trim()).filter(Boolean).join(",");
+    // 보스 순서: ⠿ 를 끌어서 바꾸면 바로 저장 (길드 하나에 한 벌, boss_settings.boss_order)
+    if (window.Sortable) Sortable.create(v.querySelector("tbody"), {
+      handle: ".drag", animation: 150, delay: 150, delayOnTouchOnly: true,
+      onEnd: async (e) => {
+        if (e.oldIndex === e.newIndex) return;
+        const order = [...v.querySelectorAll("tbody tr[data-name]")].map((tr) => tr.dataset.name);
+        try { await q(sb.from("boss_settings").upsert({ guild_id: G(), boss_order: JSON.stringify(order) }, { onConflict: "guild_id" })); toast("보스 순서를 저장했어요"); }
+        catch (err) { toast(`순서 저장 실패: ${err.message}`, true); }
+      },
+    });
     v.querySelector("tbody").onclick = async (e) => {
       const btn = e.target.closest("button[data-act]"); if (!btn) return;
       const tr = btn.closest("tr"), name = tr.dataset.name;
@@ -959,7 +977,7 @@
     const [raids, bosses, stRows, anyBattle] = await Promise.all([
       q(sb.from("raids").select("id::text,boss,killed_at,category,battle_type,kill_id::text,closed,canceled").eq("guild_id", G()).eq("canceled", 0).gte("killed_at", start).lt("killed_at", end).order("killed_at", { ascending: false })),
       q(sb.from("bosses").select("name,display,kind,raid_on").eq("guild_id", G()).order("name")),
-      q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats,att_score").eq("guild_id", G())),
+      q(sb.from("boss_settings").select("att_boss_view,att_battle_view,att_farm,att_war_off,att_practice,att_cats,att_score,boss_order").eq("guild_id", G())),
       q(sb.from("raids").select("id").eq("guild_id", G()).eq("category", "battle").limit(1)),   // 출석 분류 추천: 전투 기록이 있는지
     ]);
     // 사람이 간 보스 기록 (봇 att_view.went_sql · DB att_went 와 같음): 컷 있든 없든, 대기 · 마감된 모집 포함, 아무도 없는 기록 · 취소는 빠짐
@@ -1268,6 +1286,7 @@
   // 설정 도우미 '📨 문의하기': /건의하기 와 같은 표 (SQL web_suggest — 길드원만 · 1~1500자 · 1분 1번 · 하루 10번). 새 건의 id, 실패하면 throw(한글 메시지)
   window.bellaSendSuggestion = ({ kind, body }) => q(sb.rpc("web_suggest", { gid: G(), kind, body }));
   function scoreEditor(box, bosses, st, label) {
+    bosses = orderBosses(bosses, st?.boss_order);   // 보스 목록에서 끌어서 정한 순서
     const saved = cleanScore(st?.att_score);
     const cur = JSON.parse(JSON.stringify(saved));
     const cats = cleanCats(st?.att_cats) || [];
