@@ -273,7 +273,7 @@
     const aliasList = (t) => t.split(/[,/、]/).map((x) => x.trim()).filter(Boolean).join(",");
     // 보스 순서: ⠿ 를 끌어서 바꾸면 바로 저장 (길드 하나에 한 벌, boss_settings.boss_order)
     if (window.Sortable) Sortable.create(v.querySelector("tbody"), {
-      handle: ".drag", animation: 150, delay: 150, delayOnTouchOnly: true,
+      handle: ".drag", animation: 150, delay: 150, delayOnTouchOnly: true, forceFallback: true,
       onEnd: async (e) => {
         if (e.oldIndex === e.newIndex) return;
         const order = [...v.querySelectorAll("tbody tr[data-name]")].map((tr) => tr.dataset.name);
